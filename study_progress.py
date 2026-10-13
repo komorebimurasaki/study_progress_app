@@ -26,14 +26,14 @@ st.markdown("""
 st.title("📚 定期テスト 計画＆進捗管理アプリ")
 st.write("✨ 「3周ゴールからの逆算ノルマ」と「いま授業で習っているところへの追いつき度」をダブルで可視化！")
 
-# 初期データの設定（教科、デフォルトの開始、末尾、目標周回、現在の授業進度）
+# 初期データの設定（教科、デフォルトの開始を 2 に変更）
 subjects_config = [
-    {"教科": "国語", "開始": 1, "末尾": 39, "目標周回": 3, "授業進度": 25},
-    {"教科": "数学", "開始": 1, "末尾": 37, "目標周回": 3, "授業進度": 30},
-    {"教科": "英語", "開始": 1, "末尾": 31, "目標周回": 3, "授業進度": 21},
-    {"教科": "理科", "開始": 1, "末尾": 34, "目標周回": 3, "授業進度": 28},
-    {"教科": "地理", "開始": 1, "末尾": 25, "目標周回": 3, "授業進度": 15},
-    {"教科": "歴史", "開始": 1, "末尾": 13, "目標周回": 3, "授業進度": 10},
+    {"教科": "国語", "開始": 2, "末尾": 39, "目標周回": 3, "授業進度": 25},
+    {"教科": "数学", "開始": 2, "末尾": 37, "目標周回": 3, "授業進度": 30},
+    {"教科": "英語", "開始": 2, "末尾": 31, "目標周回": 3, "授業進度": 21},
+    {"教科": "理科", "開始": 2, "末尾": 34, "目標周回": 3, "授業進度": 28},
+    {"教科": "地理", "開始": 2, "末尾": 25, "目標周回": 3, "授業進度": 15},
+    {"教科": "歴史", "開始": 2, "末尾": 13, "目標周回": 3, "授業進度": 10},
 ]
 
 # --- 1. サイドバー：テスト日、ワークの範囲、および「学校の授業進度」の設定 ---
@@ -59,7 +59,7 @@ for item in subjects_config:
     
     col_s, col_e = st.sidebar.columns(2)
     with col_s:
-        start_p = st.number_input(f"{subj} 開始P", min_value=1, max_value=300, value=item["Start" if "Start" in item else "開始"], key=f"start_{subj}")
+        start_p = st.number_input(f"{subj} 開始P", min_value=1, max_value=300, value=item["開始"], key=f"start_{subj}")
     with col_e:
         end_p = st.number_input(f"{subj} 末尾P", min_value=1, max_value=300, value=item["末尾"], key=f"end_{subj}")
     
@@ -96,11 +96,10 @@ for i, tab in enumerate(tabs):
     school_p = subject_settings[subj]["school_progress"]
     t_round = subject_settings[subj]["target_round"]
     
-    # 2ページ単位（見開き）のブロックを生成（終わりが奇数ページになるように作成）
+    # 2ページ単位（見開き）のブロックを生成
     page_blocks = []
     current = s_p
     while current <= e_p:
-        # 見開きなので基本は +1 するが、終わりのページが偶数になってしまう場合はそのページで終わるように調整
         next_p = min(current + 1, e_p)
         page_blocks.append((current, next_p))
         current += 2
@@ -124,7 +123,6 @@ for i, tab in enumerate(tabs):
                 col_target = cols_grid[idx % 5]
                 with col_target:
                     chk_key = f"chk_{subj}_r{r}_p{p_start}"
-                    # 終わりが奇数ページ（または指定末尾）になる「〜p.3」「〜p.5」形式のラベル
                     label_text = f"〜p.{p_end}"
                     is_checked = st.checkbox(label_text, key=chk_key)
                     if is_checked:
