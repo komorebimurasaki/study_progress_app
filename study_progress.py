@@ -57,7 +57,12 @@ def save_setting_to_gas(key, value):
     except Exception as e:
         print(f"Setting save error: {e}")
 
-# --- 1. サイドバー：テスト段階の選択 ＆ 基本設定 ---
+# --- 1. サイドバー：画面モード切替 ＆ テスト段階・期限の設定 ---
+st.sidebar.header("🖥️ 表示モード切替")
+app_mode = st.sidebar.radio("表示する画面を選択", options=["📝 チェックリスト画面", "🖨️ サマリー・進捗一覧印刷画面"], key="selected_app_mode")
+
+st.sidebar.divider()
+
 st.sidebar.header("🗓️ テスト段階・期限の設定")
 test_stage = st.sidebar.radio("管理するテストを選択", options=["中間テスト", "期末テスト"], key="selected_test_stage")
 
@@ -134,14 +139,10 @@ def load_data_from_gas():
 
 df_db = load_data_from_gas()
 
-# --- 3. メイン画面：ポチポチチェック ＆ 進捗管理 ---
-st.subheader(f"🎯 教科別ページチェック（{test_stage}対策）")
-
-tabs = st.tabs([item["教科"] for item in subjects_config])
+# --- 3. メイン画面の処理（共通の計算データ作成） ---
 updated_rows = []
 
-for i, tab in enumerate(tabs):
-    item = subjects_config[i]
+for i, item in enumerate(subjects_config):
     subj = item["教科"]
     s_p = subject_settings[subj]["start"]
     e_p = subject_settings[subj]["end"]
@@ -158,145 +159,169 @@ for i, tab in enumerate(tabs):
     pages_per_round = len(page_blocks)
     total_items_count = pages_per_round * t_round
     
-    with tab:
-        st.markdown(f"### 📖 {subj} （{test_stage}）")
-        st.markdown(f"📌 **範囲:** p.{s_p} 〜 p.{e_p} ｜ 🏫 **学校の授業進度:** ~p.{school_p} まで ｜ 🎯 **目標:** {t_round}周")
-        st.write("やったページをポチポチチェック 👇")
-        
-        checked_count = 0
-        
-        for r in range(1, t_round + 1):
-            if t_round > 1:
-                st.markdown(f"**🔹 【 {r}周目 】**")
-            
-            cols_grid = st.columns(5)
-            for idx, (p_start, p_end) in enumerate(page_blocks):
-                col_target = cols_grid[idx % 5]
-                with col_target:
-                    label_text = f"〜p.{p_end}"
-                    
-                    is_currently_checked = False
-                    if not df_db.empty and all(col in df_db.columns for col in ["test_stage", "subject", "round", "page", "checked"]):
-                        matched = df_db[(df_db["test_stage"].astype(str) == str(test_stage)) & 
-                                        (df_db["subject"].astype(str) == str(subj)) & 
-                                        (df_db["round"].astype(str) == str(r)) & 
-                                        (df_db["page"].astype(str) == str(p_end))]
-                        if not matched.empty:
-                            val = matched.iloc[0]["checked"]
-                            is_currently_checked = str(val).lower() in ["true", "1", "yes"]
-                    
-                    chk_key = f"chk_{test_stage}_{subj}_r{r}_p{p_start}"
-                    is_checked = st.checkbox(label_text, value=is_currently_checked, key=chk_key)
-                    
-                    if is_checked:
-                        checked_count += 1
-                        
-                    if is_checked != is_currently_checked:
-                        try:
-                            payload = {
-                                "action": "save",
-                                "test_stage": test_stage,
-                                "subject": subj,
-                                "round": r,
-                                "page": p_end,
-                                "checked": is_checked
-                            }
-                            requests.post(GAS_URL, json=payload)
-                            st.cache_data.clear()
-                        except Exception as err:
-                            st.error(f"保存エラー: {err}")
+    # チェック済み件数のカウント
+    checked_count = 0
+    for r in range(1, t_round + 1):
+        for p_start, p_end in page_blocks:
+            is_currently_checked = False
+            if not df_db.empty and all(col in df_db.columns for col in ["test_stage", "subject", "round", "page", "checked"]):
+                matched = df_db[(df_db["test_stage"].astype(str) == str(test_stage)) & 
+                                (df_db["subject"].astype(str) == str(subj)) & 
+                                (df_db["round"].astype(str) == str(r)) & 
+                                (df_db["page"].astype(str) == str(p_end))]
+                if not matched.empty:
+                    val = matched.iloc[0]["checked"]
+                    is_currently_checked = str(val).lower() in ["true", "1", "yes"]
+            if is_currently_checked:
+                checked_count += 1
 
-        # --- 計算処理 ---
-        page_unit = 2
-        total_target_pages = total_items_count * page_unit
-        done_total_pages = checked_count * page_unit
-        remaining_total_pages = max(0, total_target_pages - done_total_pages)
-        daily_target = round(remaining_total_pages / remaining_days, 1)
-        
-        school_target_pages = max(0, school_p - s_p + 1)
-        done_round1_pages = min(pages_per_round * page_unit, done_total_pages)
-        catchup_diff = done_round1_pages - school_target_pages
-        
-        is_safe = catchup_diff >= 0
-        catchup_status_text = "完了・余裕あり" if is_safe else f"あと {-catchup_diff}P遅れ"
-        
-        goal_progress_ratio = checked_count / total_items_count if total_items_count > 0 else 0.0
-        
-        st.markdown("---")
-        st.write(f"🏆 **【{test_stage} 目標ゴールへの進捗】** ({checked_count} / {total_items_count} 区切り完了)")
-        st.progress(goal_progress_ratio)
-        
-        if is_safe:
-            st.success(f"✅ **【授業進度への追いつき】** 習った範囲（~p.{school_p}）に対して、十分完了しています！")
-        else:
-            st.warning(f"⚠️ **【授業進度への追いつき】** 現在の授業進度（~p.{school_p}）に対して、あと **{abs(catchup_diff)}ページ分** 追いつく必要があります！")
-        
-        updated_rows.append({
-            "教科": subj,
-            "範囲": f"p.{s_p} 〜 p.{e_p}",
-            "学校進度": f"~p.{school_p}",
-            "目標": f"{t_round}周",
-            "残りトータル(P)": remaining_total_pages,
-            "1日ノルマ(P/日)": daily_target,
-            "追いつき状況": catchup_status_text,
-            "is_safe": is_safe,
-            "checked_count": checked_count,
-            "total_items": total_items_count
-        })
+    page_unit = 2
+    total_target_pages = total_items_count * page_unit
+    done_total_pages = checked_count * page_unit
+    remaining_total_pages = max(0, total_target_pages - done_total_pages)
+    daily_target = round(remaining_total_pages / remaining_days, 1)
+    
+    school_target_pages = max(0, school_p - s_p + 1)
+    done_round1_pages = min(pages_per_round * page_unit, done_total_pages)
+    catchup_diff = done_round1_pages - school_target_pages
+    
+    is_safe = catchup_diff >= 0
+    catchup_status_text = "完了・余裕あり" if is_safe else f"あと {-catchup_diff}P遅れ"
+    
+    updated_rows.append({
+        "教科": subj,
+        "範囲": f"p.{s_p} 〜 p.{e_p}",
+        "学校進度": f"~p.{school_p}",
+        "目標": f"{t_round}周",
+        "残りトータル(P)": remaining_total_pages,
+        "1日ノルマ(P/日)": daily_target,
+        "追いつき状況": catchup_status_text,
+        "is_safe": is_safe,
+        "checked_count": checked_count,
+        "total_items": total_items_count
+    })
 
 result_df = pd.DataFrame(updated_rows)
 
-# --- 🎈 本日のノルマ達成時の風船演出判定 ---
-# 今日チェックされた総数が、今日時点での目標ペース（あるいは全完了）に達しているかを判定
-# ※簡易的に、学校進度への追いつきがすべて完了しており、かつ進捗がある場合に祝福
-all_caught_up = all(result_df["is_safe"])
-all_completed = all(result_df["checked_count"] >= result_df["total_items"])
+# --- 画面モードごとの表示切り替え ---
+if app_mode == "📝 チェックリスト画面":
+    st.subheader(f"🎯 教科別ページチェック（{test_stage}対策）")
 
-if len(result_df) > 0 and all_caught_up and not all_completed:
-    # 初めて今日のノルマクリア条件を満たしたときに風船を出すため、セッション状態を利用
-    if "balloon_shown" not in st.session_state:
-        st.session_state["balloon_shown"] = False
-
-    # 今回の操作で条件クリア＆まだ演出していなければ発動
-    st.balloons()
-    st.success("🎈 すばらしい！本日のノルマをしっかり達成しました！この調子で頑張ろう！🎉")
-
-# --- 🖨️ ここから下（印刷時は非表示になるエリア） ---
-st.markdown('<div class="no-print">', unsafe_allow_html=True)
-
-st.divider()
-
-# --- 4. サマリーと一覧表示 ---
-st.subheader(f"🎯 本日のノルマ・進度サマリー（{test_stage}）")
-cols = st.columns(len(result_df))
-
-for i, col in enumerate(cols):
-    row = result_df.iloc[i]
-    subj_name = row["教科"]
-    daily_val = row["1日ノルマ(P/日)"]
-    left_p = row["残りトータル(P)"]
-    target_str = row["目標"]
-    status_text = row["追いつき状況"]
-    is_safe = row["is_safe"]
+    tabs = st.tabs([item["教科"] for item in subjects_config])
     
-    delta_text = f"残り {left_p}P ({target_str})" if left_p > 0 else "コンプリート！🎉"
-    
-    if is_safe:
-        status_html = f"<span style='color: #09ab3b; font-weight: bold;'>✔ {status_text}</span>"
-    else:
-        status_html = f"<span style='color: #e65100; font-weight: bold;'>▲ {status_text}</span>"
-    
-    with col:
-        st.markdown(f"""
-        <div style="padding: 10px; border: 1px solid #e0e0e0; border-radius: 5px; background-color: #fafafa; margin-bottom: 5px;">
-            <div style="font-size: 0.9rem; color: #666; font-weight: bold;">{subj_name}</div>
-            <div style="font-size: 1.3rem; font-weight: bold; color: #111; margin: 4px 0;">{daily_val} P/日</div>
-            <div style="font-size: 0.75rem;">{status_html}</div>
-            <div style="font-size: 0.75rem; color: #555; margin-top: 2px;">{delta_text}</div>
-        </div>
-        """, unsafe_allow_html=True)
+    for i, tab in enumerate(tabs):
+        item = subjects_config[i]
+        subj = item["教科"]
+        s_p = subject_settings[subj]["start"]
+        e_p = subject_settings[subj]["end"]
+        school_p = subject_settings[subj]["school_progress"]
+        t_round = subject_settings[subj]["target_round"]
+        
+        page_blocks = []
+        current = s_p
+        while current <= e_p:
+            next_p = min(current + 1, e_p)
+            page_blocks.append((current, next_p))
+            current += 2
+            
+        with tab:
+            st.markdown(f"### 📖 {subj} （{test_stage}）")
+            st.markdown(f"📌 **範囲:** p.{s_p} 〜 p.{e_p} ｜ 🏫 **学校の授業進度:** ~p.{school_p} まで ｜ 🎯 **目標:** {t_round}周")
+            st.write("やったページをポチポチチェック 👇")
+            
+            checked_count_tab = 0
+            for r in range(1, t_round + 1):
+                if t_round > 1:
+                    st.markdown(f"**🔹 【 {r}周目 】**")
+                
+                cols_grid = st.columns(5)
+                for idx, (p_start, p_end) in enumerate(page_blocks):
+                    col_target = cols_grid[idx % 5]
+                    with col_target:
+                        label_text = f"〜p.{p_end}"
+                        
+                        is_currently_checked = False
+                        if not df_db.empty and all(col in df_db.columns for col in ["test_stage", "subject", "round", "page", "checked"]):
+                            matched = df_db[(df_db["test_stage"].astype(str) == str(test_stage)) & 
+                                            (df_db["subject"].astype(str) == str(subj)) & 
+                                            (df_db["round"].astype(str) == str(r)) & 
+                                            (df_db["page"].astype(str) == str(p_end))]
+                            if not matched.empty:
+                                val = matched.iloc[0]["checked"]
+                                is_currently_checked = str(val).lower() in ["true", "1", "yes"]
+                        
+                        chk_key = f"chk_{test_stage}_{subj}_r{r}_p{p_start}"
+                        is_checked = st.checkbox(label_text, value=is_currently_checked, key=chk_key)
+                        
+                        if is_checked:
+                            checked_count_tab += 1
+                            
+                        if is_checked != is_currently_checked:
+                            try:
+                                payload = {
+                                    "action": "save",
+                                    "test_stage": test_stage,
+                                    "subject": subj,
+                                    "round": r,
+                                    "page": p_end,
+                                    "checked": is_checked
+                                }
+                                requests.post(GAS_URL, json=payload)
+                                st.cache_data.clear()
+                            except Exception as err:
+                                st.error(f"保存エラー: {err}")
 
-st.subheader("📋 進捗一覧テーブル")
-st.dataframe(result_df[["教科", "範囲", "学校進度", "目標", "残りトータル(P)", "1日ノルマ(P/日)", "追いつき状況"]], use_container_width=True)
+            # 各タブ内のゴール進捗
+            total_items_count = len(page_blocks) * t_round
+            goal_progress_ratio = checked_count_tab / total_items_count if total_items_count > 0 else 0.0
+            
+            st.markdown("---")
+            st.write(f"🏆 **【{test_stage} 目標ゴールへの進捗】** ({checked_count_tab} / {total_items_count} 区切り完了)")
+            st.progress(goal_progress_ratio)
 
-st.markdown('</div>', unsafe_allow_html=True)
+    # ノルマ達成時の風船演出
+    all_caught_up = all(result_df["is_safe"])
+    all_completed = all(result_df["checked_count"] >= result_df["total_items"])
+    if len(result_df) > 0 and all_caught_up and not all_completed:
+        st.balloons()
+        st.success("🎈 すばらしい！本日のノルマをしっかり達成しました！この調子で頑張ろう！🎉")
+
+else:
+    # --- 🖨️ サマリー・進捗一覧印刷画面 ---
+    st.header(f"🖨️ {test_stage} ノルマ・達成度進捗サマリー")
+    st.caption("この画面をそのまま印刷（Ctrl + P または Cmd + P）してご利用いただけます。")
+    
+    st.divider()
+
+    st.subheader("🎯 本日のノルマ・進度サマリー")
+    cols = st.columns(len(result_df))
+
+    for i, col in enumerate(cols):
+        row = result_df.iloc[i]
+        subj_name = row["教科"]
+        daily_val = row["1日ノルマ(P/日)"]
+        left_p = row["残りトータル(P)"]
+        target_str = row["目標"]
+        status_text = row["追いつき状況"]
+        is_safe = row["is_safe"]
+        
+        delta_text = f"残り {left_p}P ({target_str})" if left_p > 0 else "コンプリート！🎉"
+        
+        if is_safe:
+            status_html = f"<span style='color: #09ab3b; font-weight: bold;'>✔ {status_text}</span>"
+        else:
+            status_html = f"<span style='color: #e65100; font-weight: bold;'>▲ {status_text}</span>"
+        
+        with col:
+            st.markdown(f"""
+            <div style="padding: 10px; border: 1px solid #ccc; border-radius: 5px; background-color: #fff; margin-bottom: 5px;">
+                <div style="font-size: 0.9rem; color: #444; font-weight: bold;">{subj_name}</div>
+                <div style="font-size: 1.3rem; font-weight: bold; color: #111; margin: 4px 0;">{daily_val} P/日</div>
+                <div style="font-size: 0.75rem;">{status_html}</div>
+                <div style="font-size: 0.75rem; color: #555; margin-top: 2px;">{delta_text}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.write("")
+    st.subheader("📋 進捗一覧テーブル")
+    st.dataframe(result_df[["教科", "範囲", "学校進度", "目標", "残りトータル(P)", "1日ノルマ(P/日)", "追いつき状況"]], use_container_width=True)
