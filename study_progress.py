@@ -7,8 +7,7 @@ import json
 st.set_page_config(page_title="定期テスト 計画＆進捗管理アプリ", layout="wide")
 
 # --- 🔌 GAS（ウェブアプリ）のURL設定 ---
-# 先ほど取得したGASのウェブアプリURLをここに貼り付けてください
-GAS_URL = "https://script.google.com/macros/s/AKfycbyLaO3BUWHLmJdslJCwtSjxf42q7iilyS51afA0zjnLp5qkZICM3zrEguWsKqrLTUjR/exec"
+GAS_URL = "https://script.google.com/macros/s/AKfycby18d2CsK58l_toJ7OYiK1Lp359j804g0O4uMmftybv6FgPTg8g08hG-AYXuUG3AeZQ/exec"
 
 # --- 🖨️ 印刷時の見た目・切れ防止のためのCSS設定 ---
 st.markdown("""
@@ -29,8 +28,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📚 定期テスト 計画＆進捗管理アプリ（GASスプレッドシート連動）")
-st.write("✨ 中間・期末の2段階管理 ＋ GAS経由の完全データ保存対応！")
+st.title("📚 定期テスト 計画＆進捗管理アプリ（完全クラウド同期）")
+st.write("✨ テスト予定日・範囲・ポチポチ進捗のすべてがスプレッドシートに自動保存されます！")
 
 # 初期データの設定（教科ごとのデフォルト値）
 subjects_config = [
@@ -42,18 +41,49 @@ subjects_config = [
     {"教科": "歴史", "中間末尾": 6, "期末末尾": 13, "目標周回": 3, "授業進度": 5},
 ]
 
+# --- スプレッドシートから設定データを取得 ---
+@st.cache_data(ttl=3)
+def load_settings_from_gas():
+    try:
+        response = requests.post(GAS_URL, json={"action": "read_settings"})
+        return response.json()
+    except:
+        return {}
+
+db_settings = load_settings_from_gas()
+
+# 設定を保存するヘルパー関数
+def save_setting_to_gas(key, value):
+    try:
+        payload = {"action": "save_setting", "key": key, "value": str(value)}
+        requests.post(GAS_URL, json=payload)
+        st.cache_data.clear()
+    except Exception as e:
+        print(f"Setting save error: {e}")
+
 # --- 1. サイドバー：テスト段階の選択 ＆ 基本設定 ---
 st.sidebar.header("🗓️ テスト段階・期限の設定")
 test_stage = st.sidebar.radio("管理するテストを選択", options=["中間テスト", "期末テスト"], key="selected_test_stage")
 
 date_key = f"target_date_{test_stage}"
-if date_key not in st.session_state:
-    st.session_state[date_key] = date.today()
+# スプレッドシートから日付を取得（なければ今日）
+saved_date_str = db_settings.get(date_key)
+if saved_date_str:
+    try:
+        default_date = datetime.strptime(saved_date_str[:10], "%Y-%m-%d").date()
+    except:
+        default_date = date.today()
+else:
+    default_date = date.today()
 
-target_date = st.sidebar.date_input(f"{test_stage} 予定日", key=date_key)
+target_date = st.sidebar.date_input(f"{test_stage} 予定日", value=default_date, key=date_key)
+
+# 日付が変更されたらスプレッドシートに保存
+if str(target_date) != str(saved_date_str):
+    save_setting_to_gas(date_key, target_date)
+
 today = date.today()
 remaining_days = (target_date - today).days
-
 if remaining_days <= 0:
     remaining_days = 1
     st.sidebar.warning("⚠️ 予定日が本日以前になっています。")
@@ -69,21 +99,28 @@ for item in subjects_config:
     st.sidebar.markdown(f"--- **{subj}** ---")
     
     start_p = 2
+    default_end = item["中间末尾" if "中间末尾" in item else "中間末尾"] if test_stage == "中间テスト" or test_stage == "中間テスト" else item["期末末尾"]
+    
     end_key = f"end_p_{test_stage}_{subj}"
     school_key = f"school_p_{test_stage}_{subj}"
     round_key = f"round_{test_stage}_{subj}"
     
-    default_end = item["中間末尾"] if test_stage == "中間テスト" else item["期末末尾"]
-    if end_key not in st.session_state:
-        st.session_state[end_key] = default_end
-    if school_key not in st.session_state:
-        st.session_state[school_key] = min(item["授業進度"], default_end)
-    if round_key not in st.session_state:
-        st.session_state[round_key] = item["目標周回"]
+    # 読み込み（DBになければデフォルト値）
+    saved_end = int(db_settings.get(end_key, default_end))
+    saved_school = int(db_settings.get(school_key, min(item["授業進度"], saved_end)))
+    saved_round = int(db_settings.get(round_key, item["目標周回"]))
     
-    end_p = st.sidebar.number_input(f"{subj} 末尾P", min_value=1, max_value=300, key=end_key)
-    current_school_p = st.sidebar.number_input(f"{subj} の授業進度 (~p)", min_value=start_p, max_value=end_p, key=school_key)
-    target_round = st.sidebar.selectbox(f"{subj} の目標周回", options=[1, 2, 3], key=round_key)
+    end_p = st.sidebar.number_input(f"{subj} 末尾P", min_value=1, max_value=300, value=saved_end, key=end_key)
+    if end_p != saved_end:
+        save_setting_to_gas(end_key, end_p)
+        
+    current_school_p = st.sidebar.number_input(f"{subj} の授業進度 (~p)", min_value=start_p, max_value=end_p, value=min(saved_school, end_p), key=school_key)
+    if current_school_p != saved_school:
+        save_setting_to_gas(school_key, current_school_p)
+        
+    target_round = st.sidebar.selectbox(f"{subj} の目標周回", options=[1, 2, 3], index=saved_round-1, key=round_key)
+    if target_round != saved_round:
+        save_setting_to_gas(round_key, target_round)
     
     subject_settings[subj] = {
         "start": start_p,
@@ -92,21 +129,21 @@ for item in subjects_config:
         "target_round": target_round
     }
 
-# --- 2. GAS経由でのデータ読み込み ---
-@st.cache_data(ttl=5)
+# --- 2. スプレッドシートからのチェックデータ読み込み ---
+@st.cache_data(ttl=3)
 def load_data_from_gas():
     try:
         response = requests.post(GAS_URL, json={"action": "read"})
         data = response.json()
         return pd.DataFrame(data)
-    except Exception as e:
+    except:
         return pd.DataFrame(columns=["test_stage", "subject", "round", "page", "checked"])
 
 df_db = load_data_from_gas()
 
 # --- 3. メイン画面：ポチポチチェック ＆ 進捗管理 ---
 st.subheader(f"🎯 教科別ページチェック（{test_stage}対策）")
-st.caption(f"タブから教科を選び、終わった区切りにチェックを入れましょう。データはGAS経由でスプレッドシートに保存されます！")
+st.caption(f"タブから教科を選び、終わった区切りにチェックを入れましょう。設定もポチポチもすべてスプレッドシートに保存されます！")
 
 tabs = st.tabs([item["教科"] for item in subjects_config])
 updated_rows = []
@@ -146,7 +183,6 @@ for i, tab in enumerate(tabs):
                 with col_target:
                     label_text = f"〜p.{p_end}"
                     
-                    # スプレッドシート（DB）から現在のチェック状態を取得
                     is_currently_checked = False
                     if not df_db.empty and all(col in df_db.columns for col in ["test_stage", "subject", "round", "page", "checked"]):
                         matched = df_db[(df_db["test_stage"].astype(str) == str(test_stage)) & 
@@ -163,7 +199,6 @@ for i, tab in enumerate(tabs):
                     if is_checked:
                         checked_count += 1
                         
-                    # 状態が変わった場合にGAS経由でスプレッドシートを更新
                     if is_checked != is_currently_checked:
                         try:
                             payload = {
@@ -175,7 +210,7 @@ for i, tab in enumerate(tabs):
                                 "checked": is_checked
                             }
                             requests.post(GAS_URL, json=payload)
-                            st.cache_data.clear() # キャッシュをクリアして最新状態に同期
+                            st.cache_data.clear()
                         except Exception as err:
                             st.error(f"保存エラー: {err}")
 
