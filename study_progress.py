@@ -3,6 +3,26 @@ import pandas as pd
 from datetime import datetime, date
 
 st.set_page_config(page_title="定期テスト 計画＆進捗管理アプリ", layout="wide")
+
+# --- 🖨️ 印刷時の見た目をキレイにするためのCSS設定 ---
+st.markdown("""
+<style>
+@media print {
+    /* 印刷時にサイドバーやStreamlitの余計なメニューを隠す */
+    [data-testid="stSidebar"] {
+        display: none;
+    }
+    header, footer, .stActionButton {
+        visibility: hidden;
+    }
+    /* メインエリアを全幅で綺麗に見せる */
+    .main {
+        width: 100% !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
 st.title("📚 定期テスト 計画＆進捗管理アプリ")
 
 # 初期データ（教科、開始ページ、末ページ、終わったページ、現在の周回数、目標周回数）
@@ -55,10 +75,10 @@ for idx, row in df.iterrows():
             key=f"end_{row['教科']}"
         )
     
-    # 1周あたりの総ページ数を自動計算（例: 39 - 1 + 1 = 39ページ分）
+    # 1周あたりの総ページ数を自動計算
     pages_per_round = max(1, end_p - start_p + 1)
     
-    # 2. 目標周回数の選択（1〜3周から自分で選べる）
+    # 2. 目標周回数の選択
     target_round = st.sidebar.selectbox(
         f"{row['教科']} の目標周回数", 
         options=[1, 2, 3], 
@@ -83,7 +103,7 @@ for idx, row in df.iterrows():
         key=f"done_{row['教科']}"
     )
     
-    # 計算ロジック：目標周回数に応じたトータル残りの計算
+    # 計算ロジック
     total_target_pages = pages_per_round * target_round
     done_total_pages = (pages_per_round * (round_num - 1)) + current_done
     remaining_total_pages = max(0, total_target_pages - done_total_pages)
