@@ -9,7 +9,7 @@ st.set_page_config(page_title="定期テスト 計画＆進捗管理アプリ", 
 # --- 🔌 GAS（ウェブアプリ）のURL設定 ---
 GAS_URL = "https://script.google.com/macros/s/AKfycby18d2CsK58l_toJ7OYiK1Lp359j804g0O4uMmftybv6FgPTg8g08hG-AYXuUG3AeZQ/exec"
 
-# --- 🖨️ 印刷時のスタイル・切れ防止設定 ---
+# --- 🖨️ 印刷時のスタイル・A4収まり＆切れ防止設定 ---
 st.markdown("""
 <style>
 @media print {
@@ -22,8 +22,12 @@ st.markdown("""
     .no-print {
         display: none !important;
     }
+    /* A4 1枚に収めるための全体縮小とマージン調整 */
     body {
-        zoom: 90%;
+        zoom: 75%;
+    }
+    .print-container {
+        page-break-inside: avoid;
     }
 }
 </style>
@@ -190,7 +194,6 @@ for i, item in enumerate(subjects_config):
     is_safe = catchup_diff >= 0
     catchup_status_text = "完了・余裕あり" if is_safe else f"あと {-catchup_diff}P遅れ"
     
-    # グラフ用の達成率計算 (%)
     completion_rate = round((checked_count / total_items_count * 100), 1) if total_items_count > 0 else 0.0
 
     updated_rows.append({
@@ -292,15 +295,16 @@ if app_mode == "📝 チェックリスト画面":
         st.success("🎈 すばらしい！本日のノルマをしっかり達成しました！この調子で頑張ろう！🎉")
 
 else:
-    # --- 🖨️ サマリー・進捗一覧印刷画面 ---
+    # --- 🖨️ サマリー・進捗一覧印刷画面（A4収まり最適化） ---
+    st.markdown('<div class="print-container">', unsafe_allow_html=True)
+    
     st.header(f"🖨️ {test_stage} ノルマ・達成度進捗サマリー")
-    st.caption("この画面をそのまま印刷（Ctrl + P または Cmd + P）してご利用いただけます。")
+    st.caption("この画面をそのまま印刷（Ctrl + P または Cmd + P）してA4 1枚でご利用いただけます。")
     
     st.divider()
 
     st.subheader("🎯 本日のノルマ・進度サマリー")
     
-    # 切れにくいように3列ずつのグリッドレイアウトでカードを表示
     cols = st.columns(3)
     for i, row in result_df.iterrows():
         col_target = cols[i % 3]
@@ -320,20 +324,19 @@ else:
         
         with col_target:
             st.markdown(f"""
-            <div style="padding: 12px; border: 1px solid #ddd; border-radius: 6px; background-color: #fff; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-                <div style="font-size: 0.95rem; color: #333; font-weight: bold;">{subj_name}</div>
-                <div style="font-size: 1.4rem; font-weight: bold; color: #111; margin: 4px 0;">{daily_val} P/日</div>
-                <div style="font-size: 0.8rem;">{status_html}</div>
-                <div style="font-size: 0.8rem; color: #555; margin-top: 3px;">{delta_text}</div>
+            <div style="padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; background-color: #fff; margin-bottom: 8px;">
+                <div style="font-size: 0.85rem; color: #444; font-weight: bold;">{subj_name}</div>
+                <div style="font-size: 1.2rem; font-weight: bold; color: #111; margin: 2px 0;">{daily_val} P/日</div>
+                <div style="font-size: 0.75rem;">{status_html}</div>
+                <div style="font-size: 0.75rem; color: #555; margin-top: 1px;">{delta_text}</div>
             </div>
             """, unsafe_allow_html=True)
 
-    st.write("")
     st.subheader("📊 教科別 達成率グラフ")
-    # Streamlitの標準棒グラフで教科ごとの達成率（%）を可視化
     chart_data = result_df.set_index("教科")[["達成率(%)"]]
-    st.bar_chart(chart_data, color="#4CAF50", height=250)
+    st.bar_chart(chart_data, color="#4CAF50", height=180)
 
-    st.write("")
     st.subheader("📋 進捗一覧テーブル")
-    st.dataframe(result_df[["教科", "範囲", "学校進度", "目標", "完了区切り数", "総区切り数", "達成率(%)", "残りトータル(P)", "1日ノルマ(P/日)", "追いつき状況"]], use_container_width=True)
+    st.dataframe(result_df[["教科", "範囲", "学校進度", "目標", "完了区切り数", "総区切り数", "達成率(%)", "残りトータル(P)", "1日ノルマ(P/日)", "追いつき状況"]], use_container_width=True, height=220)
+
+    st.markdown('</div>', unsafe_allow_html=True)
