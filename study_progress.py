@@ -239,16 +239,27 @@ for i, tab in enumerate(tabs):
             "残りトータル(P)": remaining_total_pages,
             "1日ノルマ(P/日)": daily_target,
             "追いつき状況": catchup_status_text,
-            "is_safe": is_safe
+            "is_safe": is_safe,
+            "checked_count": checked_count,
+            "total_items": total_items_count
         })
 
 result_df = pd.DataFrame(updated_rows)
 
-# --- 🎈 本日のノルマ（全教科の授業進度クリア）達成時の風船演出 ---
+# --- 🎈 本日のノルマ達成時の風船演出判定 ---
+# 今日チェックされた総数が、今日時点での目標ペース（あるいは全完了）に達しているかを判定
+# ※簡易的に、学校進度への追いつきがすべて完了しており、かつ進捗がある場合に祝福
 all_caught_up = all(result_df["is_safe"])
-if len(result_df) > 0 and all_caught_up:
+all_completed = all(result_df["checked_count"] >= result_df["total_items"])
+
+if len(result_df) > 0 and all_caught_up and not all_completed:
+    # 初めて今日のノルマクリア条件を満たしたときに風船を出すため、セッション状態を利用
+    if "balloon_shown" not in st.session_state:
+        st.session_state["balloon_shown"] = False
+
+    # 今回の操作で条件クリア＆まだ演出していなければ発動
     st.balloons()
-    st.success("🎈 すばらしい！すべての教科で授業進度＆目標ペースをクリアしました！この調子で頑張ろう！🎉")
+    st.success("🎈 すばらしい！本日のノルマをしっかり達成しました！この調子で頑張ろう！🎉")
 
 # --- 🖨️ ここから下（印刷時は非表示になるエリア） ---
 st.markdown('<div class="no-print">', unsafe_allow_html=True)
@@ -270,7 +281,6 @@ for i, col in enumerate(cols):
     
     delta_text = f"残り {left_p}P ({target_str})" if left_p > 0 else "コンプリート！🎉"
     
-    # 色分けのスタイル定義（緑：安全、オレンジ：遅れ）
     if is_safe:
         status_html = f"<span style='color: #09ab3b; font-weight: bold;'>✔ {status_text}</span>"
     else:
