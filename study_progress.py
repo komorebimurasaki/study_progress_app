@@ -9,9 +9,10 @@ st.set_page_config(page_title="定期テスト 計画＆進捗管理アプリ", 
 # --- 🔌 GAS（ウェブアプリ）のURL設定 ---
 GAS_URL = "https://script.google.com/macros/s/AKfycby18d2CsK58l_toJ7OYiK1Lp359j804g0O4uMmftybv6FgPTg8g08hG-AYXuUG3AeZQ/exec"
 
-# --- 🖨️ 印刷時の見た目・切れ防止のためのCSS設定 ---
+# --- 🖨️ 印刷時の見た目・切れ防止・スタイル設定 ---
 st.markdown("""
 <style>
+/* 印刷時は進捗サマリーやテーブル（目標への進捗より下）を非表示にし、ポチポチ部分だけを印刷 */
 @media print {
     [data-testid="stSidebar"] {
         display: none !important;
@@ -19,17 +20,24 @@ st.markdown("""
     header, footer, .stActionButton {
         display: none !important;
     }
-    .main, .block-container {
-        width: 100% !important;
-        max-width: 100% !important;
-        padding: 0 !important;
+    /* 目標への進捗より下を非表示にするクラス指定 */
+    .no-print {
+        display: none !important;
     }
+}
+
+/* メトリックの文字が切れないようにサイズや折り返しを調整 */
+[data-testid="stMetricValue"] {
+    font-size: 1.4rem !important;
+}
+[data-testid="stMetricDelta"] {
+    font-size: 0.8rem !important;
+    white-space: normal !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📚 定期テスト 計画＆進捗管理アプリ（完全クラウド同期）")
-st.write("✨ テスト予定日・範囲・ポチポチ進捗のすべてがスプレッドシートに自動保存されます！")
+st.title("📚 定期テスト 計画＆進捗管理アプリ")
 
 # 初期データの設定（教科ごとのデフォルト値）
 subjects_config = [
@@ -52,7 +60,6 @@ def load_settings_from_gas():
 
 db_settings = load_settings_from_gas()
 
-# 設定を保存するヘルパー関数
 def save_setting_to_gas(key, value):
     try:
         payload = {"action": "save_setting", "key": key, "value": str(value)}
@@ -66,7 +73,6 @@ st.sidebar.header("🗓️ テスト段階・期限の設定")
 test_stage = st.sidebar.radio("管理するテストを選択", options=["中間テスト", "期末テスト"], key="selected_test_stage")
 
 date_key = f"target_date_{test_stage}"
-# スプレッドシートから日付を取得（なければ今日）
 saved_date_str = db_settings.get(date_key)
 if saved_date_str:
     try:
@@ -78,7 +84,6 @@ else:
 
 target_date = st.sidebar.date_input(f"{test_stage} 予定日", value=default_date, key=date_key)
 
-# 日付が変更されたらスプレッドシートに保存
 if str(target_date) != str(saved_date_str):
     save_setting_to_gas(date_key, target_date)
 
@@ -99,13 +104,12 @@ for item in subjects_config:
     st.sidebar.markdown(f"--- **{subj}** ---")
     
     start_p = 2
-    default_end = item["中间末尾" if "中间末尾" in item else "中間末尾"] if test_stage == "中间テスト" or test_stage == "中間テスト" else item["期末末尾"]
+    default_end = item["中间末尾" if "中间末尾" in item else "中間末尾"] if test_stage in ["中间テスト", "中間テスト"] else item["期末末尾"]
     
     end_key = f"end_p_{test_stage}_{subj}"
     school_key = f"school_p_{test_stage}_{subj}"
     round_key = f"round_{test_stage}_{subj}"
     
-    # 読み込み（DBになければデフォルト値）
     saved_end = int(db_settings.get(end_key, default_end))
     saved_school = int(db_settings.get(school_key, min(item["授業進度"], saved_end)))
     saved_round = int(db_settings.get(round_key, item["目標周回"]))
@@ -143,10 +147,11 @@ df_db = load_data_from_gas()
 
 # --- 3. メイン画面：ポチポチチェック ＆ 進捗管理 ---
 st.subheader(f"🎯 教科別ページチェック（{test_stage}対策）")
-st.caption(f"タブから教科を選び、終わった区切りにチェックを入れましょう。設定もポチポチもすべてスプレッドシートに保存されます！")
 
 tabs = st.tabs([item["教科"] for item in subjects_config])
 updated_rows = []
+total_all_items = 0
+total_all_checked = 0
 
 for i, tab in enumerate(tabs):
     item = subjects_config[i]
@@ -165,6 +170,7 @@ for i, tab in enumerate(tabs):
         
     pages_per_round = len(page_blocks)
     total_items_count = pages_per_round * t_round
+    total_all_items += total_items_count
     
     with tab:
         st.markdown(f"### 📖 {subj} （{test_stage}）")
@@ -214,6 +220,8 @@ for i, tab in enumerate(tabs):
                         except Exception as err:
                             st.error(f"保存エラー: {err}")
 
+        total_all_checked += checked_count
+
         # --- 計算処理 ---
         page_unit = 2
         total_target_pages = total_items_count * page_unit
@@ -250,6 +258,14 @@ for i, tab in enumerate(tabs):
 
 result_df = pd.DataFrame(updated_rows)
 
+# --- 🌟 全体コンプリート時の風船演出 ---
+if total_all_items > 0 and total_all_checked >= total_all_items:
+    st.balloons()
+    st.success("🎉 おめでとうございます！すべての目標を達成しました！素晴らしい頑張りです！🎈")
+
+# --- 🖨️ ここから下（印刷時は非表示になるエリア） ---
+st.markdown('<div class="no-print">', unsafe_allow_html=True)
+
 st.divider()
 
 # --- 4. サマリーと一覧表示 ---
@@ -259,8 +275,10 @@ for i, col in enumerate(cols):
     row = result_df.iloc[i]
     left_p = row['残りトータル(P)']
     status = row['追いつき状況']
-    delta_text = f"残り {left_p}P ({row['目標']})" if left_p > 0 else "目標コンプリート！🎉"
-    col.metric(label=row["教科"], value=f"{row['1日ノルマ(P/日)']} ページ/日", delta=f"{status} / {delta_text}")
+    delta_text = f"残り {left_p}P ({row['目標']})" if left_p > 0 else "コンプリート！🎉"
+    col.metric(label=row["教科"], value=f"{row['1日ノルマ(P/日)']} P/日", delta=f"{status} / {delta_text}")
 
 st.subheader("📋 進捗一覧テーブル")
 st.dataframe(result_df[["教科", "範囲", "学校進度", "目標", "残りトータル(P)", "1日ノルマ(P/日)", "追いつき状況"]], use_container_width=True)
+
+st.markdown('</div>', unsafe_allow_html=True)
