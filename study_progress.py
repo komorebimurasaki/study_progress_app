@@ -24,7 +24,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("📚 定期テスト 計画＆進捗管理アプリ（中間・期末対応）")
-st.write("✨ 中間テスト・期末テストの2段階管理 ＋ ポチポチ進捗と日付の自動記憶機能付き！")
+st.write("✨ 中間テスト・期末テストの2段階管理 ＋ 設定した範囲やチェック状態の自動記憶機能付き！")
 
 # 初期データの設定（教科ごとのデフォルト値）
 subjects_config = [
@@ -41,7 +41,7 @@ st.sidebar.header("🗓️ テスト段階・期限の設定")
 
 test_stage = st.sidebar.radio("管理するテストを選択", options=["中間テスト", "期末テスト"], index=0)
 
-# テスト予定日をセッション（記憶）に保持
+# テスト予定日をセッションに保持
 date_key = f"target_date_{test_stage}"
 if date_key not in st.session_state:
     st.session_state[date_key] = date.today()
@@ -65,21 +65,41 @@ for item in subjects_config:
     st.sidebar.markdown(f"--- **{subj}** ---")
     
     start_p = 2
-    if test_stage == "中間テスト":
-        default_end = item["中間末尾"]
-        end_p = st.sidebar.number_input(f"{subj} 中間末尾P", min_value=1, max_value=300, value=default_end, key=f"mid_end_{subj}")
-    else:
-        end_p = st.sidebar.number_input(f"{subj} 期末末尾P", min_value=1, max_value=300, value=item["期末末尾"], key=f"fin_end_{subj}")
+    
+    # 中間・期末それぞれの入力値を session_state で保持・管理するキー
+    end_key = f"end_p_{test_stage}_{subj}"
+    school_key = f"school_p_{test_stage}_{subj}"
+    round_key = f"round_{test_stage}_{subj}"
+    
+    # 初期値の設定
+    default_end = item["中間末尾"] if test_stage == "中間テスト" else item["期末末尾"]
+    if end_key not in st.session_state:
+        st.session_state[end_key] = default_end
+    if school_key not in st.session_state:
+        st.session_state[school_key] = min(item["授業進度"], default_end)
+    if round_key not in st.session_state:
+        st.session_state[round_key] = item["目標周回"]
+    
+    # サイドバーの入力ウィジェット（session_stateと連動）
+    end_p = st.sidebar.number_input(
+        f"{subj} {test_stage}末尾P", 
+        min_value=1, 
+        max_value=300, 
+        key=end_key
+    )
     
     current_school_p = st.sidebar.number_input(
         f"{subj} の授業進度 (~p)", 
         min_value=start_p, 
         max_value=end_p, 
-        value=min(item["授業進度"], end_p),
-        key=f"school_{test_stage}_{subj}"
+        key=school_key
     )
     
-    target_round = st.sidebar.selectbox(f"{subj} の目標周回", options=[1, 2, 3], index=item["目標周回"]-1, key=f"round_{test_stage}_{subj}")
+    target_round = st.sidebar.selectbox(
+        f"{subj} の目標周回", 
+        options=[1, 2, 3], 
+        key=round_key
+    )
     
     subject_settings[subj] = {
         "start": start_p,
@@ -90,7 +110,7 @@ for item in subjects_config:
 
 # --- 2. メイン画面：ポチポチチェック ＆ ダブル進捗の可視化 ---
 st.subheader(f"🎯 教科別ページチェック（{test_stage}対策）")
-st.caption(f"タブから教科を選び、終わった区切り（〜p.3、〜p.5…）にポチポチチェックを入れましょう！チェック状態は自動で記憶されます。")
+st.caption(f"タブから教科を選び、終わった区切り（〜p.3、〜p.5…）にポチポチチェックを入れましょう！中間・期末それぞれの設定やチェックは独立して記憶されます。")
 
 tabs = st.tabs([item["教科"] for item in subjects_config])
 updated_rows = []
