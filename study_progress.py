@@ -50,7 +50,7 @@ else:
 
 st.sidebar.divider()
 st.sidebar.subheader("✏️ 範囲 ＆ 学校の授業進度の設定")
-st.sidebar.caption("※「p.1」から「p.30」のように、ワークの開始ページと終わりのページを設定できます。")
+st.sidebar.caption("※ワークの開始ページと終わりのページを設定できます。")
 
 subject_settings = {}
 for item in subjects_config:
@@ -59,7 +59,7 @@ for item in subjects_config:
     
     col_s, col_e = st.sidebar.columns(2)
     with col_s:
-        start_p = st.number_input(f"{subj} 開始P", min_value=1, max_value=300, value=item["開始"], key=f"start_{subj}")
+        start_p = st.number_input(f"{subj} 開始P", min_value=1, max_value=300, value=item["Start" if "Start" in item else "開始"], key=f"start_{subj}")
     with col_e:
         end_p = st.number_input(f"{subj} 末尾P", min_value=1, max_value=300, value=item["末尾"], key=f"end_{subj}")
     
@@ -83,7 +83,7 @@ for item in subjects_config:
 
 # --- 2. メイン画面：ポチポチチェック ＆ ダブル進捗の可視化 ---
 st.subheader("🎯 教科別ページチェック（ポチポチ進捗）")
-st.caption("タブから教科を選び、終わった区切り（〜p.3、〜p.5…）にポチポチチェックを入れましょう！")
+st.caption("タブから教科を選び、終わった区切り（〜p.3、〜p.5…の奇数ページ単位）にポチポチチェックを入れましょう！")
 
 tabs = st.tabs([item["教科"] for item in subjects_config])
 updated_rows = []
@@ -96,10 +96,11 @@ for i, tab in enumerate(tabs):
     school_p = subject_settings[subj]["school_progress"]
     t_round = subject_settings[subj]["target_round"]
     
-    # 指定された開始ページから末尾ページまで、2ページ刻み（見開き単位）のリストを作成
+    # 2ページ単位（見開き）のブロックを生成（終わりが奇数ページになるように作成）
     page_blocks = []
     current = s_p
     while current <= e_p:
+        # 見開きなので基本は +1 するが、終わりのページが偶数になってしまう場合はそのページで終わるように調整
         next_p = min(current + 1, e_p)
         page_blocks.append((current, next_p))
         current += 2
@@ -123,7 +124,7 @@ for i, tab in enumerate(tabs):
                 col_target = cols_grid[idx % 5]
                 with col_target:
                     chk_key = f"chk_{subj}_r{r}_p{p_start}"
-                    # 表示を 「〜p.3」「〜p.5」 のような形式にする
+                    # 終わりが奇数ページ（または指定末尾）になる「〜p.3」「〜p.5」形式のラベル
                     label_text = f"〜p.{p_end}"
                     is_checked = st.checkbox(label_text, key=chk_key)
                     if is_checked:
