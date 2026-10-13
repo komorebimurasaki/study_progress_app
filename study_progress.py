@@ -8,40 +8,33 @@ st.set_page_config(page_title="定期テスト 計画＆進捗管理アプリ", 
 st.markdown("""
 <style>
 @media print {
-    /* 印刷時にサイドバーや余計なメニューを完全に隠す */
     [data-testid="stSidebar"] {
         display: none !important;
     }
     header, footer, .stActionButton {
         display: none !important;
     }
-    /* メインエリアを広げて途切れないようにする */
     .main, .block-container {
         width: 100% !important;
         max-width: 100% !important;
         padding: 0 !important;
     }
-    /* カードやメトリックが切れないように縦に並べる工夫 */
-    [data-testid="column"] {
-        width: 100% !important;
-        flex: 100% !important;
-        display: block !important;
-        margin-bottom: 10px;
-    }
 }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📚 定期テスト 計画＆進捗管理アプリ")
+st.title("📚 定期テスト ポチポチ進捗＆ノルマ管理アプリ")
+st.write("✨ ワークの「奇数ページ（2ページで1区切り）」ごとにポチポチチェックして、進捗を体感しよう！")
 
-# 初期データ（教科、開始ページ、末ページ、終わったページ、現在の周回数、目標周回数）
+# 初期データの設定（教科、開始ページ、末ページ、目標周回数）
+# 各科目の「完了した奇数ページ番号のリスト」を管理します
 initial_data = [
-    {"教科": "国語", "開始ページ": 1, "末ページ": 39, "終わったページ": 8, "現在の周回": 1, "目標周回": 2},
-    {"教科": "数学", "開始ページ": 1, "末ページ": 37, "終わったページ": 28, "現在の周回": 1, "目標周回": 2},
-    {"教科": "英語", "開始ページ": 1, "末ページ": 31, "終わったページ": 21, "現在の周回": 1, "目標周回": 2},
-    {"教科": "理科", "開始ページ": 1, "末ページ": 34, "終わったページ": 31, "現在の周回": 1, "目標周回": 2},
-    {"教科": "地理", "開始ページ": 1, "末ページ": 25, "終わったページ": 9, "現在の周回": 1, "目標周回": 2},
-    {"教科": "歴史", "開始ページ": 1, "末ページ": 13, "終わったページ": 7, "現在の周回": 1, "目標周回": 2},
+    {"教科": "国語", "開始ページ": 1, "末ページ": 39, "目標周回": 2, "完了ページリスト": [1, 3, 5, 7]},
+    {"教科": "数学", "開始ページ": 1, "末ページ": 37, "目標周回": 2, "完了ページリスト": [1, 3, 5, 7, 9, 11, 13, 15]},
+    {"教科": "英語", "開始ページ": 1, "末ページ": 31, "目標周回": 2, "完了ページリスト": [1, 3, 5, 7, 9]},
+    {"教科": "理科", "開始ページ": 1, "末ページ": 34, "目標周回": 2, "完了ページリスト": [1, 3, 5, 7, 9, 11]},
+    {"教科": "地理", "開始ページ": 1, "末ページ": 25, "目標周回": 2, "完了ページリスト": [1, 3, 5]},
+    {"教科": "歴史", "開始ページ": 1, "末ページ": 13, "目標周回": 2, "完了ページリスト": [1, 3]},
 ]
 
 df = pd.DataFrame(initial_data)
@@ -59,86 +52,100 @@ else:
     st.sidebar.info(f"⏳ テストまで **あと {remaining_days} 日** です！")
 
 st.sidebar.divider()
-st.sidebar.subheader("✏️ ワークの範囲 ＆ 周回数の設定")
-st.sidebar.caption("※「p.10からp.35まで」のように、開始と終わりのページを入力できます。")
+st.sidebar.subheader("✏️ ワークの範囲 ＆ 目標設定")
 
-updated_rows = []
-
+subject_settings = {}
 for idx, row in df.iterrows():
     st.sidebar.markdown(f"--- **{row['教科']}** ---")
     
-    # 1. 開始ページと末ページの入力
     col_s, col_e = st.sidebar.columns(2)
     with col_s:
-        start_p = st.number_input(
-            f"{row['教科']} 開始P", 
-            min_value=1, max_value=300, 
-            value=int(row['開始ページ']),
-            key=f"start_{row['教科']}"
-        )
+        start_p = st.number_input(f"{row['教科']} 開始P", min_value=1, max_value=300, value=int(row['开始ページ'] if '开始ページ' in row else row['開始ページ']), key=f"start_{row['教科']}")
     with col_e:
-        end_p = st.number_input(
-            f"{row['教科']} 末尾P", 
-            min_value=1, max_value=300, 
-            value=int(row['末ページ']),
-            key=f"end_{row['教科']}"
-        )
+        end_p = st.number_input(f"{row['教科']} 末尾P", min_value=1, max_value=300, value=int(row['末ページ']), key=f"end_{row['教科']}")
     
-    # 1周あたりの総ページ数を自動計算
-    pages_per_round = max(1, end_p - start_p + 1)
+    target_round = st.sidebar.selectbox(f"{row['教科']} の目標周回", options=[1, 2, 3], index=int(row['目標周回'])-1, key=f"target_round_{row['教科']}")
     
-    # 2. 目標周回数の選択
-    target_round = st.sidebar.selectbox(
-        f"{row['教科']} の目標周回数", 
-        options=[1, 2, 3], 
-        index=int(row['目標周回'])-1,
-        key=f"target_round_{row['教科']}"
-    )
+    subject_settings[row['教科']] = {
+        "start": start_p,
+        "end": end_p,
+        "target_round": target_round
+    }
+
+st.sidebar.divider()
+st.sidebar.info("💡 メイン画面のタブから教科を選んで、終わったページをポチポチチェックしていこう！")
+
+# --- 2. メイン画面：タブ切り替えによる「ポチポチ式」ページチェック ---
+st.subheader("🎯 教科別ページチェック（ポチポチ進捗）")
+st.caption("終わった「奇数ページ（区切りの始まり）」にチェックを入れていくと、進捗と1日ノルマが自動で連動します！")
+
+tabs = st.tabs([row["教科"] for row in initial_data])
+
+updated_rows = []
+
+for i, tab in enumerate(tabs):
+    row = initial_data[i]
+    subj = row["教科"]
+    s_p = subject_settings[subj]["start"]
+    e_p = subject_settings[subj]["end"]
+    t_round = subject_settings[subj]["target_round"]
     
-    # 3. 現在挑戦中の周回
-    round_num = st.sidebar.selectbox(
-        f"{row['教科']} の現在の周回", 
-        options=list(range(1, target_round + 1)), 
-        index=min(int(row['現在の周回'])-1, target_round-1),
-        key=f"round_{row['教科']}"
-    )
+    # 1周分の奇数ページリストを作成（例: 1, 3, 5, 7, ...）
+    odd_pages = list(range(s_p, e_p + 1, 2))
+    pages_per_round = len(odd_pages)
     
-    # 4. 今周で終わったページ数
-    current_done = st.sidebar.number_input(
-        f"{row['教科']} の今周の完了P数", 
-        min_value=0, 
-        max_value=int(pages_per_round), 
-        value=min(int(row['終わったページ']), int(pages_per_round)),
-        key=f"done_{row['教科']}"
-    )
-    
-    # 計算ロジック
-    total_target_pages = pages_per_round * target_round
-    done_total_pages = (pages_per_round * (round_num - 1)) + current_done
-    remaining_total_pages = max(0, total_target_pages - done_total_pages)
-    
-    # 1日あたりのノルマ
-    daily_target = round(remaining_total_pages / remaining_days, 1)
-    
-    updated_rows.append({
-        "教科": row["教科"],
-        "範囲": f"p.{start_p} 〜 p.{end_p} (全{pages_per_round}P)",
-        "目標": f"{target_round}周",
-        "現在の周回": f"{round_num}周目",
-        "今周の終了(P)": current_done,
-        "残りトータル(P)": remaining_total_pages,
-        "1日ノルマ(P/日)": daily_target,
-        # 内部計算用
-        "_pages_per_round": pages_per_round,
-        "_target_round": target_round,
-        "_done_total": done_total_pages
-    })
+    with tab:
+        st.markdown(f"### 📖 {subj} （範囲: p.{s_p} 〜 p.{e_p} / 目標: {t_round}周）")
+        st.write("やったページをポチポチチェックしてください 👇")
+        
+        # チェックボックスを綺麗に並べる（5列グリッド）
+        checked_pages = []
+        cols_grid = st.columns(5)
+        
+        for idx, p in enumerate(odd_pages):
+            # デフォルトですでに終わっているページ判定
+            default_val = p in row["完了ページリスト"]
+            col_target = cols_grid[idx % 5]
+            
+            with col_target:
+                is_checked = st.checkbox(f"p.{p}〜", value=default_val, key=f"chk_{subj}_{p}")
+                if is_checked:
+                    checked_pages.append(p)
+        
+        # 周回ごとの進捗を計算（何周目まで完了しているか、今何周目か）
+        total_checked_count = len(checked_pages)
+        current_round = min(t_round, (total_checked_count // pages_per_round) + 1)
+        current_round_done_count = total_checked_count % pages_per_round
+        if total_checked_count > 0 and current_round_done_count == 0 and total_checked_count >= pages_per_round:
+            current_round = min(t_round, total_checked_count // pages_per_round)
+            current_round_done_count = pages_per_round if current_round == t_round else 0
+            
+        # 3周トータルでの残ページ計算（奇数ページ数をページ数に換算する場合は 1区切り=2ページ分 または 1ブロック単位で計算）
+        # ここでは「1奇数ページ ＝ 2ページ分（見開き1区切り）」としてページ数換算します
+        page_unit = 2 
+        total_target_pages = (pages_per_round * page_unit) * t_round
+        done_total_pages = total_checked_count * page_unit
+        remaining_total_pages = max(0, total_target_pages - done_total_pages)
+        
+        daily_target = round(remaining_total_pages / remaining_days, 1)
+        
+        updated_rows.append({
+            "教科": subj,
+            "範囲": f"p.{s_p} 〜 p.{e_p}",
+            "目標": f"{t_round}周",
+            "完了数": f"{total_checked_count} / {pages_per_round * t_round} 区切り",
+            "残りトータル(P)": remaining_total_pages,
+            "1日ノルマ(P/日)": daily_target,
+            "_done_total": done_total_pages,
+            "_target_total": total_target_pages
+        })
 
 result_df = pd.DataFrame(updated_rows)
 
-# --- 2. メイン画面：1日ノルマの可視化 ---
-st.subheader("🎯 目標クリアに向けた今日の1日ノルマ")
-st.caption(f"テスト直前まで（あと {remaining_days} 日）に、科目ごとに設定した目標（1〜3周）を達成するための目安です。")
+st.divider()
+
+# --- 3. 今日のノルマまとめ＆一覧表示 ---
+st.subheader("📊 本日のノルマ＆全体進捗サマリー")
 
 cols = st.columns(len(result_df))
 for i, col in enumerate(cols):
@@ -156,17 +163,14 @@ for i, col in enumerate(cols):
         delta=delta_text
     )
 
-st.divider()
-
-# --- 3. 詳細な進捗テーブル ---
-st.subheader("📊 教科別 進捗・残り状況一覧")
-display_df = result_df[["教科", "範囲", "目標", "現在の周回", "今周の終了(P)", "残りトータル(P)", "1日ノルマ(P/日)"]]
+st.subheader("📋 進捗一覧テーブル")
+display_df = result_df[["教科", "範囲", "目標", "完了数", "残りトータル(P)", "1日ノルマ(P/日)"]]
 st.dataframe(display_df, use_container_width=True)
 
-# 全体の進捗の計算
-total_target_all = sum([r["_pages_per_round"] * r["_target_round"] for _, r in result_df.iterrows()])
-total_done_calc = sum([r["_done_total"] for _, r in result_df.iterrows()])
-overall_progress = min(1.0, total_done_calc / total_target_all) if total_target_all > 0 else 0
+# 全体の進捗バー
+total_target_all = sum([r["_target_total"] for _, r in result_df.iterrows()])
+total_done_all = sum([r["_done_total"] for _, r in result_df.iterrows()])
+overall_progress = min(1.0, total_done_all / total_target_all) if total_target_all > 0 else 0
 
 st.subheader("🏆 全体目標達成度")
-st.progress(overall_progress, text=f"トータル進捗: {total_done_calc} / {total_target_all} ページ完了")
+st.progress(overall_progress, text=f"トータル進捗: {total_done_all} / {total_target_all} ページ完了")
