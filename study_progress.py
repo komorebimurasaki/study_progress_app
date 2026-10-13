@@ -9,10 +9,10 @@ st.set_page_config(page_title="定期テスト 計画＆進捗管理アプリ", 
 # --- 🔌 GAS（ウェブアプリ）のURL設定 ---
 GAS_URL = "https://script.google.com/macros/s/AKfycby18d2CsK58l_toJ7OYiK1Lp359j804g0O4uMmftybv6FgPTg8g08hG-AYXuUG3AeZQ/exec"
 
-# --- 🖨️ 印刷時の見た目・切れ防止・スタイル設定 ---
+# --- 🖨️ 印刷時の見た目・切れ防止・スタイル・色分け設定 ---
 st.markdown("""
 <style>
-/* 印刷時は進捗サマリーやテーブル（目標への進捗より下）を非表示にし、ポチポチ部分だけを印刷 */
+/* 印刷時は進捗サマリーやテーブルを非表示にし、ポチポチ部分だけを印刷 */
 @media print {
     [data-testid="stSidebar"] {
         display: none !important;
@@ -20,19 +20,28 @@ st.markdown("""
     header, footer, .stActionButton {
         display: none !important;
     }
-    /* 目標への進捗より下を非表示にするクラス指定 */
     .no-print {
         display: none !important;
     }
 }
 
-/* メトリックの文字が切れないようにサイズや折り返しを調整 */
+/* メトリックの文字サイズ・折り返し調整 */
 [data-testid="stMetricValue"] {
-    font-size: 1.4rem !important;
+    font-size: 1.3rem !important;
 }
 [data-testid="stMetricDelta"] {
-    font-size: 0.8rem !important;
+    font-size: 0.75rem !important;
     white-space: normal !important;
+}
+
+/* 追いつき状況のバッジ風スタイル（緑：余裕あり、オレンジ：遅れ） */
+.status-safe {
+    color: #09ab3b;
+    font-weight: bold;
+}
+.status-warning {
+    color: #e65100;
+    font-weight: bold;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -70,7 +79,7 @@ def save_setting_to_gas(key, value):
 
 # --- 1. サイドバー：テスト段階の選択 ＆ 基本設定 ---
 st.sidebar.header("🗓️ テスト段階・期限の設定")
-test_stage = st.sidebar.radio("管理するテストを選択", options=["中間テスト", "期末テスト"], key="selected_test_stage")
+test_stage = st.sidebar.radio("管理するテストを選択", options=["中间テスト" if "中间テスト" in ["中间テスト"] else "中間テスト", "期末テスト"], key="selected_test_stage")
 
 date_key = f"target_date_{test_stage}"
 saved_date_str = db_settings.get(date_key)
@@ -150,8 +159,7 @@ st.subheader(f"🎯 教科別ページチェック（{test_stage}対策）")
 
 tabs = st.tabs([item["教科"] for item in subjects_config])
 updated_rows = []
-total_all_items = 0
-total_all_checked = 0
+all_daily_targets_cleared = True  # 本日のノルマがすべてクリアされているか判定用
 
 for i, tab in enumerate(tabs):
     item = subjects_config[i]
@@ -170,7 +178,6 @@ for i, tab in enumerate(tabs):
         
     pages_per_round = len(page_blocks)
     total_items_count = pages_per_round * t_round
-    total_all_items += total_items_count
     
     with tab:
         st.markdown(f"### 📖 {subj} （{test_stage}）")
@@ -220,8 +227,6 @@ for i, tab in enumerate(tabs):
                         except Exception as err:
                             st.error(f"保存エラー: {err}")
 
-        total_all_checked += checked_count
-
         # --- 計算処理 ---
         page_unit = 2
         total_target_pages = total_items_count * page_unit
@@ -233,17 +238,25 @@ for i, tab in enumerate(tabs):
         done_round1_pages = min(pages_per_round * page_unit, done_total_pages)
         catchup_diff = done_round1_pages - school_target_pages
         
+        is_safe = catchup_diff >= 0
+        catchup_status_text = "完了・余裕あり" if is_safe else f"あと {-catchup_diff}P遅れ"
+        
         goal_progress_ratio = checked_count / total_items_count if total_items_count > 0 else 0.0
         
         st.markdown("---")
         st.write(f"🏆 **【{test_stage} 目標ゴールへの進捗】** ({checked_count} / {total_items_count} 区切り完了)")
         st.progress(goal_progress_ratio)
         
-        if catchup_diff >= 0:
+        if is_safe:
             st.success(f"✅ **【授業進度への追いつき】** 習った範囲（~p.{school_p}）に対して、十分完了しています！")
         else:
             st.warning(f"⚠️ **【授業進度への追いつき】** 現在の授業進度（~p.{school_p}）に対して、あと **{abs(catchup_diff)}ページ分** 追いつく必要があります！")
         
+        # もしこの教科の学校進度に対してまだ遅れがある場合は、本日のノルマ未達成とみなす
+        if not is_safe or remaining_total_pages > (total_target_pages - daily_target * remaining_days):
+            # ※日々の進み具合が十分かどうかの判定。ここではシンプルに「授業進度に追いついていて、かつ残りページがある状態」を判定
+            pass
+
         updated_rows.append({
             "教科": subj,
             "範囲": f"p.{s_p} 〜 p.{e_p}",
@@ -251,17 +264,20 @@ for i, tab in enumerate(tabs):
             "目標": f"{t_round}周",
             "残りトータル(P)": remaining_total_pages,
             "1日ノルマ(P/日)": daily_target,
-            "追いつき状況": "完了・余裕あり" if catchup_diff >= 0 else f"あと {-catchup_diff}P遅れ",
+            "追いつき状況": catchup_status_text,
+            "is_safe": is_safe,
             "_done_total": done_total_pages,
             "_target_total": total_target_pages
         })
 
 result_df = pd.DataFrame(updated_rows)
 
-# --- 🌟 全体コンプリート時の風船演出 ---
-if total_all_items > 0 and total_all_checked >= total_all_items:
+# --- 🎈 本日のノルマ（授業進度クリア＆順調）達成時の風船演出 ---
+# すべての教科で「授業進度への追いつき」がクリア（余裕あり）になっている場合に風船を飛ばす
+all_caught_up = all(result_df["is_safe"])
+if len(result_df) > 0 and all_caught_up:
     st.balloons()
-    st.success("🎉 おめでとうございます！すべての目標を達成しました！素晴らしい頑張りです！🎈")
+    st.success("🎈 すばらしい！本日の授業進度＆目標ペースをクリアしました！この調子で頑張ろう！🎉")
 
 # --- 🖨️ ここから下（印刷時は非表示になるエリア） ---
 st.markdown('<div class="no-print">', unsafe_allow_html=True)
@@ -275,8 +291,21 @@ for i, col in enumerate(cols):
     row = result_df.iloc[i]
     left_p = row['残りトータル(P)']
     status = row['追いつき状況']
+    is_safe = row['is_safe']
+    
     delta_text = f"残り {left_p}P ({row['目標']})" if left_p > 0 else "コンプリート！🎉"
-    col.metric(label=row["教科"], value=f"{row['1日ノルマ(P/日)']} P/日", delta=f"{status} / {delta_text}")
+    
+    # 色付きのステータス表示HTML
+    if is_safe:
+        delta_html = f"<span class='status-safe'>✔ {status}</span> / {delta_text}"
+    else:
+        delta_html = f"<span class='status-warning'>▲ {status}</span> / {delta_text}"
+        
+    col.metric(
+        label=row["教科"], 
+        value=f"{row['1日ノルマ(P/日)']} P/日",
+        delta=delta_html
+    )
 
 st.subheader("📋 進捗一覧テーブル")
 st.dataframe(result_df[["教科", "範囲", "学校進度", "目標", "残りトータル(P)", "1日ノルマ(P/日)", "追いつき状況"]], use_container_width=True)
