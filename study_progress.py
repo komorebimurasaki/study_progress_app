@@ -4,20 +4,29 @@ from datetime import datetime, date
 
 st.set_page_config(page_title="定期テスト 計画＆進捗管理アプリ", layout="wide")
 
-# --- 🖨️ 印刷時の見た目をキレイにするためのCSS設定 ---
+# --- 🖨️ 印刷時の見た目・切れ防止のためのCSS設定 ---
 st.markdown("""
 <style>
 @media print {
-    /* 印刷時にサイドバーやStreamlitの余計なメニューを隠す */
+    /* 印刷時にサイドバーや余計なメニューを完全に隠す */
     [data-testid="stSidebar"] {
-        display: none;
+        display: none !important;
     }
     header, footer, .stActionButton {
-        visibility: hidden;
+        display: none !important;
     }
-    /* メインエリアを全幅で綺麗に見せる */
-    .main {
+    /* メインエリアを広げて途切れないようにする */
+    .main, .block-container {
         width: 100% !important;
+        max-width: 100% !important;
+        padding: 0 !important;
+    }
+    /* カードやメトリックが切れないように縦に並べる工夫 */
+    [data-testid="column"] {
+        width: 100% !important;
+        flex: 100% !important;
+        display: block !important;
+        margin-bottom: 10px;
     }
 }
 </style>
