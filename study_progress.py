@@ -8,7 +8,7 @@ st.set_page_config(page_title="定期テスト 計画＆進捗管理アプリ", 
 
 # --- 🔌 GAS（ウェブアプリ）のURL設定 ---
 # 先ほど取得したGASのウェブアプリURLをここに貼り付けてください
-GAS_URL = "https://script.google.com/macros/s/AKfycbzJ4haEJBc8IYQSS4Hc9PG3tMVQLGPd9VjJtu55UBSaKJJQ18dJFabjPBXL4Fu1H2I/exec"
+GAS_URL = "https://script.google.com/macros/s/AKfycbyLaO3BUWHLmJdslJCwtSjxf42q7iilyS51afA0zjnLp5qkZICM3zrEguWsKqrLTUjR/exec"
 
 # --- 🖨️ 印刷時の見た目・切れ防止のためのCSS設定 ---
 st.markdown("""
