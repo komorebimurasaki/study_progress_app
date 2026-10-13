@@ -24,12 +24,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("📚 定期テスト 計画＆進捗管理アプリ（中間・期末対応）")
-st.write("✨ 中間テスト・期末テストの2段階で、それぞれの期限・範囲・目標を個別に管理できます！")
+st.write("✨ 中間テスト・期末テストの2段階管理 ＋ ポチポチ進捗と日付の自動記憶機能付き！")
 
 # 初期データの設定（教科ごとのデフォルト値）
 subjects_config = [
     {"教科": "国語", "中間末尾": 20, "期末末尾": 39, "目標周回": 3, "授業進度": 15},
-    {"教科": "数学", "中間末尾": 18, "期末末尾": 37, "目標周回": 3, "授業進度": 16},
+    {"教科": "数学", "中间末尾" if "中间末尾" in ["中间末尾"] else "中間末尾": 18, "期末末尾": 37, "目標周回": 3, "授業進度": 16},
     {"教科": "英語", "中間末尾": 15, "期末末尾": 31, "目標周回": 3, "授業進度": 12},
     {"教科": "理科", "中間末尾": 17, "期末末尾": 34, "目標周回": 3, "授業進度": 14},
     {"教科": "地理", "中間末尾": 12, "期末末尾": 25, "目標周回": 3, "授業進度": 10},
@@ -39,10 +39,14 @@ subjects_config = [
 # --- 1. サイドバー：テスト段階の切り替え ＆ 日付・範囲設定 ---
 st.sidebar.header("🗓️ テスト段階・期限の設定")
 
-# どのテストを管理するかを選択
 test_stage = st.sidebar.radio("管理するテストを選択", options=["中間テスト", "期末テスト"], index=0)
 
-target_date = st.sidebar.date_input(f"{test_stage} 予定日", date.today())
+# テスト予定日をセッション（記憶）に保持
+date_key = f"target_date_{test_stage}"
+if date_key not in st.session_state:
+    st.session_state[date_key] = date.today()
+
+target_date = st.sidebar.date_input(f"{test_stage} 予定日", key=date_key)
 today = date.today()
 remaining_days = (target_date - today).days
 
@@ -54,24 +58,19 @@ else:
 
 st.sidebar.divider()
 st.sidebar.subheader(f"✏️ {test_stage} の範囲 ＆ 進度設定")
-st.sidebar.caption("※中間・期末それぞれの範囲や授業進度を設定できます。")
 
 subject_settings = {}
 for item in subjects_config:
     subj = item["教科"]
     st.sidebar.markdown(f"--- **{subj}** ---")
     
-    # テスト段階に応じてデフォルトの範囲を切り替え
+    start_p = 2
     if test_stage == "中間テスト":
-        default_end = item["中间末尾" if "中间末尾" in item else "中間末尾"]
-        start_p = 2
+        default_end = item["中間末尾"]
         end_p = st.sidebar.number_input(f"{subj} 中間末尾P", min_value=1, max_value=300, value=default_end, key=f"mid_end_{subj}")
     else:
-        # 期末の場合、中間の終わりから期末の終わりまで、あるいは最初から期末まで
-        start_p = 2
         end_p = st.sidebar.number_input(f"{subj} 期末末尾P", min_value=1, max_value=300, value=item["期末末尾"], key=f"fin_end_{subj}")
     
-    # いま学校で習っているところ
     current_school_p = st.sidebar.number_input(
         f"{subj} の授業進度 (~p)", 
         min_value=start_p, 
@@ -91,7 +90,7 @@ for item in subjects_config:
 
 # --- 2. メイン画面：ポチポチチェック ＆ ダブル進捗の可視化 ---
 st.subheader(f"🎯 教科別ページチェック（{test_stage}対策）")
-st.caption(f"タブから教科を選び、{test_stage}範囲の終わった区切り（〜p.3、〜p.5…）にポチポチチェックを入れましょう！")
+st.caption(f"タブから教科を選び、終わった区切り（〜p.3、〜p.5…）にポチポチチェックを入れましょう！チェック状態は自動で記憶されます。")
 
 tabs = st.tabs([item["教科"] for item in subjects_config])
 updated_rows = []
@@ -104,7 +103,6 @@ for i, tab in enumerate(tabs):
     school_p = subject_settings[subj]["school_progress"]
     t_round = subject_settings[subj]["target_round"]
     
-    # 2ページ単位（見開き）のブロックを生成
     page_blocks = []
     current = s_p
     while current <= e_p:
@@ -130,9 +128,10 @@ for i, tab in enumerate(tabs):
             for idx, (p_start, p_end) in enumerate(page_blocks):
                 col_target = cols_grid[idx % 5]
                 with col_target:
-                    # キーにテスト段階を含めることで、中間と期末でチェック状態を独立して保持できます
                     chk_key = f"chk_{test_stage}_{subj}_r{r}_p{p_start}"
                     label_text = f"〜p.{p_end}"
+                    
+                    # チェックボックスを配置（Streamlitが状態を自動で記憶してくれます）
                     is_checked = st.checkbox(label_text, key=chk_key)
                     if is_checked:
                         checked_count += 1
@@ -144,7 +143,6 @@ for i, tab in enumerate(tabs):
         remaining_total_pages = max(0, total_target_pages - done_total_pages)
         daily_target = round(remaining_total_pages / remaining_days, 1)
         
-        # 授業進度に対する追いつき度
         school_target_pages = max(0, school_p - s_p + 1)
         done_round1_pages = min(pages_per_round * page_unit, done_total_pages)
         catchup_diff = done_round1_pages - school_target_pages
