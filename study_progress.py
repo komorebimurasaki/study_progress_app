@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, date
 import requests
 import json
+import plotly.express as px
 
 st.set_page_config(page_title="定期テスト 計画＆進捗管理アプリ", layout="wide")
 
@@ -22,9 +23,8 @@ st.markdown("""
     .no-print {
         display: none !important;
     }
-    /* A4 1枚に収めるための全体縮小とマージン調整 */
     body {
-        zoom: 75%;
+        zoom: 70%;
     }
     .print-container {
         page-break-inside: avoid;
@@ -192,8 +192,18 @@ for i, item in enumerate(subjects_config):
     catchup_diff = done_round1_pages - school_target_pages
     
     is_safe = catchup_diff >= 0
-    catchup_status_text = "完了・余裕あり" if is_safe else f"あと {-catchup_diff}P遅れ"
     
+    # 3段階の指標判定
+    if daily_target <= 1.0:
+        pace_status = "✅ 余裕あり"
+        pace_color = "#09ab3b"
+    elif daily_target <= 1.3:
+        pace_status = "👍 順調"
+        pace_color = "#2196F3"
+    else:
+        pace_status = "🔥 がんばれ"
+        pace_color = "#e65100"
+
     completion_rate = round((checked_count / total_items_count * 100), 1) if total_items_count > 0 else 0.0
 
     updated_rows.append({
@@ -206,7 +216,8 @@ for i, item in enumerate(subjects_config):
         "達成率(%)": completion_rate,
         "残りトータル(P)": remaining_total_pages,
         "1日ノルマ(P/日)": daily_target,
-        "追いつき状況": catchup_status_text,
+        "ペース指標": pace_status,
+        "pace_color": pace_color,
         "is_safe": is_safe
     })
 
@@ -295,7 +306,7 @@ if app_mode == "📝 チェックリスト画面":
         st.success("🎈 すばらしい！本日のノルマをしっかり達成しました！この調子で頑張ろう！🎉")
 
 else:
-    # --- 🖨️ サマリー・進捗一覧印刷画面（A4収まり最適化） ---
+    # --- 🖨️ サマリー・進捗一覧印刷画面（A4収まり＆目標ライン付きグラフ） ---
     st.markdown('<div class="print-container">', unsafe_allow_html=True)
     
     st.header(f"🖨️ {test_stage} ノルマ・達成度進捗サマリー")
@@ -312,31 +323,48 @@ else:
         daily_val = row["1日ノルマ(P/日)"]
         left_p = row["残りトータル(P)"]
         target_str = row["目標"]
-        status_text = row["追いつき状況"]
-        is_safe = row["is_safe"]
+        pace_status = row["ペース指標"]
+        pace_color = row["pace_color"]
         
         delta_text = f"残り {left_p}P ({target_str})" if left_p > 0 else "コンプリート！🎉"
-        
-        if is_safe:
-            status_html = f"<span style='color: #09ab3b; font-weight: bold;'>✔ {status_text}</span>"
-        else:
-            status_html = f"<span style='color: #e65100; font-weight: bold;'>▲ {status_text}</span>"
+        status_html = f"<span style='color: {pace_color}; font-weight: bold;'>{pace_status}</span>"
         
         with col_target:
             st.markdown(f"""
-            <div style="padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px; background-color: #fff; margin-bottom: 8px;">
-                <div style="font-size: 0.85rem; color: #444; font-weight: bold;">{subj_name}</div>
-                <div style="font-size: 1.2rem; font-weight: bold; color: #111; margin: 2px 0;">{daily_val} P/日</div>
-                <div style="font-size: 0.75rem;">{status_html}</div>
-                <div style="font-size: 0.75rem; color: #555; margin-top: 1px;">{delta_text}</div>
+            <div style="padding: 6px 8px; border: 1px solid #ddd; border-radius: 5px; background-color: #fff; margin-bottom: 6px;">
+                <div style="font-size: 0.8rem; color: #444; font-weight: bold;">{subj_name}</div>
+                <div style="font-size: 1.1rem; font-weight: bold; color: #111; margin: 2px 0;">{daily_val} P/日</div>
+                <div style="font-size: 0.7rem;">{status_html}</div>
+                <div style="font-size: 0.7rem; color: #555; margin-top: 1px;">{delta_text}</div>
             </div>
             """, unsafe_allow_html=True)
 
-    st.subheader("📊 教科別 達成率グラフ")
-    chart_data = result_df.set_index("教科")[["達成率(%)"]]
-    st.bar_chart(chart_data, color="#4CAF50", height=180)
+    st.subheader("📊 教科別 達成率グラフ（目標ライン付き）")
+    
+    # Plotlyで目標ライン（例: 100%ライン、または平均ライン）付きの洗練されたグラフを作成
+    fig = px.bar(
+        result_df, 
+        x="教科", 
+        y="達成率(%)", 
+        text="達成率(%)",
+        color="達成率(%)",
+        color_continuous_scale="Greens"
+    )
+    # 100%目標ラインを追加
+    fig.add_hline(y=100, line_dash="dash", line_color="red", annotation_text="目標 (100%)", annotation_position="top right")
+    
+    fig.update_layout(
+        margin=dict(l=20, r=20, t=30, b=20),
+        height=180,  # A4に収まるようにコンパクト化
+        xaxis_title="",
+        yaxis_title="達成率 (%)",
+        coloraxis_showscale=False,
+        yaxis=dict(range=[0, 115])
+    )
+    fig.update_traces(texttemplate='%{text}%', textposition='outside')
+    st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("📋 進捗一覧テーブル")
-    st.dataframe(result_df[["教科", "範囲", "学校進度", "目標", "完了区切り数", "総区切り数", "達成率(%)", "残りトータル(P)", "1日ノルマ(P/日)", "追いつき状況"]], use_container_width=True, height=220)
+    st.dataframe(result_df[["教科", "範囲", "学校進度", "目標", "完了区切り数", "総区切り数", "達成率(%)", "残りトータル(P)", "1日ノルマ(P/日)", "ペース指標"]], use_container_width=True, height=180)
 
     st.markdown('</div>', unsafe_allow_html=True)
