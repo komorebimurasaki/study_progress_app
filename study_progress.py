@@ -213,9 +213,9 @@ for i, item in enumerate(subjects_config):
         "目標": f"{t_round}周",
         "完了区切り数": checked_count,
         "総区切り数": total_items_count,
-        "達成率(%)": completion_rate,
-        "残りトータル(P)": remaining_total_pages,
-        "1日ノルマ(P/日)": daily_target,
+        "達成率(%)": round(completion_rate, 1),
+        "残りトータル(P)": round(remaining_total_pages, 1),
+        "1日ノルマ(P/日)": round(daily_target, 1),
         "ペース指標": pace_status,
         "pace_color": pace_color,
         "is_safe": is_safe
@@ -341,19 +341,24 @@ else:
 
     st.subheader("📊 教科別 達成率 (%) ＆ ペース連動カラー")
     
-    # Altairグラフ：Y軸の自動調整（100%固定を解除し、データに応じてきれいに表示）
-    chart = alt.Chart(result_df).mark_bar().encode(
-        x=alt.X('教科:N', sort=None, title=''),
+    # Altairグラフ：すべての教科（6教科分）が確実に収まるように幅・高さを調整
+    chart = alt.Chart(result_df).mark_bar(size=22).encode(
+        x=alt.X('教科:N', sort=None, title='', axis=alt.Axis(labelAngle=0)),
         y=alt.Y('達成率(%):Q', title='達成率 (%)', scale=alt.Scale(nice=True, zero=True)),
         color=alt.Color('pace_color:N', scale=None),
         tooltip=['教科', '達成率(%)', 'ペース指標']
     ).properties(
-        height=130
+        height=120
     )
     st.altair_chart(chart, use_container_width=True)
 
     st.subheader("📋 進捗一覧テーブル")
-    # st.table を使うことでスクロールなしですべての行が縦に一覧表示されます
-    st.table(result_df[["教科", "範囲", "学校進度", "目標", "完了区切り数", "総区切り数", "達成率(%)", "残りトータル(P)", "1日ノルマ(P/日)", "ペース指標"]])
+    # 小数第一位までフォーマットされたデータをテーブル表示
+    display_df = result_df[["教科", "範囲", "学校進度", "目標", "完了区切り数", "総区切り数", "達成率(%)", "残りトータル(P)", "1日ノルマ(P/日)", "ペース指標"]].copy()
+    display_df["達成率(%)"] = display_df["達成率(%)"].apply(lambda x: f"{x:.1f}")
+    display_df["残りトータル(P)"] = display_df["残りトータル(P)"].apply(lambda x: f"{x:.1f}")
+    display_df["1日ノルマ(P/日)"] = display_df["1日ノルマ(P/日)"].apply(lambda x: f"{x:.1f}")
+    
+    st.table(display_df)
 
     st.markdown('</div>', unsafe_allow_html=True)
