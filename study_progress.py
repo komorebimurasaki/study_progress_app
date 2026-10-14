@@ -9,7 +9,7 @@ import altair as alt
 st.set_page_config(page_title="定期テスト 計画＆進捗管理アプリ", layout="wide")
 
 # --- 🔌 GAS（ウェブアプリ）のURL設定 ---
-GAS_URL = "https://script.google.com/macros/s/AKfycbzJ4haEJBc8IYQSS4Hc9PG3tMVQLGPd9VjJtu55UBSaKJJQ18dJFabjPBXL4Fu1H2I/exec"
+GAS_URL = "https://script.google.com/macros/s/AKfycby18d2CsK58l_toJ7OYiK1Lp359j804g0O4uMmftybv6FgPTg8g08hG-AYXuUG3AeZQ/exec"
 
 # --- 🖨️ 印刷時のスタイル・A4収まり設定 ---
 st.markdown("""
@@ -65,7 +65,7 @@ def save_setting_to_gas(key, value):
     except Exception as e:
         print(f"Setting save error: {e}")
 
-# --- 1. サイドバー：初期ページを「期末テストの印刷・サマリー画面」に設定 ---
+# --- 1. サイドバー：画面モード切替 ＆ テスト段階・期限の設定 ---
 st.sidebar.header("🖥️ 表示モード切替")
 app_mode = st.sidebar.radio(
     "表示する画面を選択", 
@@ -76,7 +76,6 @@ app_mode = st.sidebar.radio(
 st.sidebar.divider()
 
 st.sidebar.header("🗓️ テスト段階・期限の設定")
-# 初期選択を「期末テスト」に設定
 test_stage = st.sidebar.radio("管理するテストを選択", options=["期末テスト", "中間テスト"], key="selected_test_stage")
 
 date_key = f"target_date_{test_stage}"
@@ -140,7 +139,7 @@ for item in subjects_config:
         "target_round": target_round
     }
 
-# --- 2. スプレッドシートからのチェックデータ読み込み（中間・期末でデータ共有） ---
+# --- 2. スプレッドシートからのチェックデータ読み込み ---
 @st.cache_data(ttl=3)
 def load_data_from_gas():
     try:
@@ -176,8 +175,7 @@ for i, item in enumerate(subjects_config):
     for r in range(1, t_round + 1):
         for p_start, p_end in page_blocks:
             is_currently_checked = False
-            if not df_db.empty and all(col in df_db.columns for col in ["test_stage", "subject", "round", "page", "checked"]):
-                # どちらのテストでチェックしていても共通でカウントする
+            if not df_db.empty and all(col in df_db.columns for col in ["subject", "round", "page", "checked"]):
                 matched = df_db[(df_db["subject"].astype(str) == str(subj)) & 
                                 (df_db["round"].astype(str) == str(r)) & 
                                 (df_db["page"].astype(str) == str(p_end)) &
@@ -193,14 +191,6 @@ for i, item in enumerate(subjects_config):
     remaining_total_pages = max(0, total_target_pages - done_total_pages)
     daily_target = round(remaining_total_pages / remaining_days, 1)
     
-    school_target_pages = max(0, school_p - s_p + 1)
-    done_round1_pages = min(pages_per_round * page_unit, checked_count * page_unit)
-    
-    # 1周目が学校の授業進度まで進んだかどうかの判定
-    round1_blocks_count = len([b for b in page_blocks if b[1] <= school_p])
-    round1_checked_in_school = 0 # 1周目で学校進度までにチェックが入っている数
-    
-    # ペース指標
     if daily_target <= 1.0:
         pace_status = "✅ 余裕あり"
         pace_color = "#09ab3b"
@@ -255,8 +245,6 @@ if app_mode == "📝 チェックリスト画面":
             st.markdown(f"📌 **範囲:** p.{s_p} 〜 p.{e_p} ｜ 🏫 **学校の授業進度:** ~p.{school_p} まで ｜ 🎯 **目標:** {t_round}周")
             
             # 1周目が学校進度まで進んだ場合の誘導メッセージ
-            s_row = result_df[result_df["教科"] == subj].iloc[0]
-            # 1周目の中で学校進度までのページが完了しているか簡易判定
             school_blocks = [b for b in page_blocks if b[1] <= school_p]
             school_completed = True
             if school_blocks:
@@ -286,7 +274,7 @@ if app_mode == "📝 チェックリスト画面":
                         label_text = f"〜p.{p_end}"
                         
                         is_currently_checked = False
-                        if not df_db.empty and all(col in df_db.columns for col in ["test_stage", "subject", "round", "page", "checked"]):
+                        if not df_db.empty and all(col in df_db.columns for col in ["subject", "round", "page", "checked"]):
                             matched = df_db[(df_db["subject"].astype(str) == str(subj)) & 
                                             (df_db["round"].astype(str) == str(r)) & 
                                             (df_db["page"].astype(str) == str(p_end))]
@@ -322,7 +310,6 @@ if app_mode == "📝 チェックリスト画面":
             st.write(f"🏆 **【{test_stage} 目標ゴールへの進捗】** ({checked_count_tab} / {total_items_count} 区切り完了)")
             st.progress(goal_progress_ratio)
 
-            # --- 各教科ごとの「今日の分を入力した！」ボタン ---
             if st.button(f"🎈 {subj} の今日の分を入力した！", key=f"btn_complete_{subj}"):
                 st.balloons()
                 st.success(f"🎉 {subj}の今日の学習お疲れ様でした！素晴らしい頑張りです！✨")
