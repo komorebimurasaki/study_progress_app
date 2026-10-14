@@ -10,7 +10,7 @@ st.set_page_config(page_title="定期テスト 計画＆進捗管理アプリ", 
 # --- 🔌 GAS（ウェブアプリ）のURL設定 ---
 GAS_URL = "https://script.google.com/macros/s/AKfycby18d2CsK58l_toJ7OYiK1Lp359j804g0O4uMmftybv6FgPTg8g08hG-AYXuUG3AeZQ/exec"
 
-# --- 🖨️ 印刷時のスタイル・A4 1枚収まり強制設定 ---
+# --- 🖨️ 印刷時のスタイル・A4収まり設定 ---
 st.markdown("""
 <style>
 @media print {
@@ -24,18 +24,11 @@ st.markdown("""
         display: none !important;
     }
     body {
-        zoom: 60%; /* A4 1枚にすべて収まるよう全体を縮小 */
+        zoom: 65%;
     }
     .print-container {
         page-break-inside: avoid;
     }
-}
-/* テーブルのスクロールをなくし、すべての行を縦に展開して表示 */
-[data-testid="stDataFrame"] div[data-baseweb="tab-list"] ~ div {
-    max-height: none !important;
-}
-div[data-testid="stDataFrame"] > div {
-    height: auto !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -348,11 +341,11 @@ else:
 
     st.subheader("📊 教科別 達成率 (%) ＆ ペース連動カラー")
     
-    # Altairを使い、各教科のステータスカラー（緑・青・オレンジ）に合わせた棒グラフを作成
+    # Altairグラフ：Y軸の自動調整（100%固定を解除し、データに応じてきれいに表示）
     chart = alt.Chart(result_df).mark_bar().encode(
         x=alt.X('教科:N', sort=None, title=''),
-        y=alt.Y('達成率(%):Q', title='達成率 (%)', scale=alt.Scale(domain=[0, 100])),
-        color=alt.Color('pace_color:N', scale=None), # ステータスごとの色をそのまま適用
+        y=alt.Y('達成率(%):Q', title='達成率 (%)', scale=alt.Scale(nice=True, zero=True)),
+        color=alt.Color('pace_color:N', scale=None),
         tooltip=['教科', '達成率(%)', 'ペース指標']
     ).properties(
         height=130
@@ -360,7 +353,7 @@ else:
     st.altair_chart(chart, use_container_width=True)
 
     st.subheader("📋 進捗一覧テーブル")
-    # スクロールなしですべての行を縦に展開して表示
-    st.dataframe(result_df[["教科", "範囲", "学校進度", "目標", "完了区切り数", "総区切り数", "達成率(%)", "残りトータル(P)", "1日ノルマ(P/日)", "ペース指標"]], use_container_width=True, hide_index=True)
+    # st.table を使うことでスクロールなしですべての行が縦に一覧表示されます
+    st.table(result_df[["教科", "範囲", "学校進度", "目標", "完了区切り数", "総区切り数", "達成率(%)", "残りトータル(P)", "1日ノルマ(P/日)", "ペース指標"]])
 
     st.markdown('</div>', unsafe_allow_html=True)
