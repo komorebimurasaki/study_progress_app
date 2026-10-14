@@ -3,13 +3,14 @@ import pandas as pd
 from datetime import datetime, date
 import requests
 import json
+import altair as alt
 
 st.set_page_config(page_title="定期テスト 計画＆進捗管理アプリ", layout="wide")
 
 # --- 🔌 GAS（ウェブアプリ）のURL設定 ---
 GAS_URL = "https://script.google.com/macros/s/AKfycby18d2CsK58l_toJ7OYiK1Lp359j804g0O4uMmftybv6FgPTg8g08hG-AYXuUG3AeZQ/exec"
 
-# --- 🖨️ 印刷時のスタイル・A4収まり＆切れ防止設定 ---
+# --- 🖨️ 印刷時のスタイル・A4 1枚収まり強制設定 ---
 st.markdown("""
 <style>
 @media print {
@@ -23,11 +24,18 @@ st.markdown("""
         display: none !important;
     }
     body {
-        zoom: 70%;
+        zoom: 60%; /* A4 1枚にすべて収まるよう全体を縮小 */
     }
     .print-container {
         page-break-inside: avoid;
     }
+}
+/* テーブルのスクロールをなくし、すべての行を縦に展開して表示 */
+[data-testid="stDataFrame"] div[data-baseweb="tab-list"] ~ div {
+    max-height: none !important;
+}
+div[data-testid="stDataFrame"] > div {
+    height: auto !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -192,7 +200,7 @@ for i, item in enumerate(subjects_config):
     
     is_safe = catchup_diff >= 0
     
-    # 3段階の指標判定 (1ページ以下: 余裕あり、1.3ページ以下: 順調、それ超え: がんばれ)
+    # 3段階の指標判定 (1.0以下: 余裕あり[緑], 1.3以下: 順調[青], 超え: がんばれ[オレンジ])
     if daily_target <= 1.0:
         pace_status = "✅ 余裕あり"
         pace_color = "#09ab3b"
@@ -305,7 +313,7 @@ if app_mode == "📝 チェックリスト画面":
         st.success("🎈 すばらしい！本日のノルマをしっかり達成しました！この調子で頑張ろう！🎉")
 
 else:
-    # --- 🖨️ サマリー・進捗一覧印刷画面（A4収まり最適化） ---
+    # --- 🖨️ サマリー・進捗一覧印刷画面（A4 1枚収まり完全最適化） ---
     st.markdown('<div class="print-container">', unsafe_allow_html=True)
     
     st.header(f"🖨️ {test_stage} ノルマ・達成度進捗サマリー")
@@ -330,19 +338,29 @@ else:
         
         with col_target:
             st.markdown(f"""
-            <div style="padding: 5px 8px; border: 1px solid #ddd; border-radius: 5px; background-color: #fff; margin-bottom: 5px;">
-                <div style="font-size: 0.75rem; color: #444; font-weight: bold;">{subj_name}</div>
-                <div style="font-size: 1.05rem; font-weight: bold; color: #111; margin: 1px 0;">{daily_val} P/日</div>
-                <div style="font-size: 0.65rem;">{status_html}</div>
-                <div style="font-size: 0.65rem; color: #555; margin-top: 1px;">{delta_text}</div>
+            <div style="padding: 4px 6px; border: 1px solid #ddd; border-radius: 4px; background-color: #fff; margin-bottom: 4px;">
+                <div style="font-size: 0.7rem; color: #444; font-weight: bold;">{subj_name}</div>
+                <div style="font-size: 0.95rem; font-weight: bold; color: #111; margin: 1px 0;">{daily_val} P/日</div>
+                <div style="font-size: 0.6rem;">{status_html}</div>
+                <div style="font-size: 0.6rem; color: #555; margin-top: 1px;">{delta_text}</div>
             </div>
             """, unsafe_allow_html=True)
 
-    st.subheader("📊 教科別 達成率 (%)")
-    chart_data = result_df.set_index("教科")[["達成率(%)"]]
-    st.bar_chart(chart_data, height=140)
+    st.subheader("📊 教科別 達成率 (%) ＆ ペース連動カラー")
+    
+    # Altairを使い、各教科のステータスカラー（緑・青・オレンジ）に合わせた棒グラフを作成
+    chart = alt.Chart(result_df).mark_bar().encode(
+        x=alt.X('教科:N', sort=None, title=''),
+        y=alt.Y('達成率(%):Q', title='達成率 (%)', scale=alt.Scale(domain=[0, 100])),
+        color=alt.Color('pace_color:N', scale=None), # ステータスごとの色をそのまま適用
+        tooltip=['教科', '達成率(%)', 'ペース指標']
+    ).properties(
+        height=130
+    )
+    st.altair_chart(chart, use_container_width=True)
 
     st.subheader("📋 進捗一覧テーブル")
-    st.dataframe(result_df[["教科", "範囲", "学校進度", "目標", "完了区切り数", "総区切り数", "達成率(%)", "残りトータル(P)", "1日ノルマ(P/日)", "ペース指標"]], use_container_width=True, height=150)
+    # スクロールなしですべての行を縦に展開して表示
+    st.dataframe(result_df[["教科", "範囲", "学校進度", "目標", "完了区切り数", "総区切り数", "達成率(%)", "残りトータル(P)", "1日ノルマ(P/日)", "ペース指標"]], use_container_width=True, hide_index=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
