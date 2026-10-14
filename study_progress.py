@@ -3,12 +3,13 @@ import pandas as pd
 from datetime import datetime, date
 import requests
 import json
+import random
 import altair as alt
 
 st.set_page_config(page_title="定期テスト 計画＆進捗管理アプリ", layout="wide")
 
 # --- 🔌 GAS（ウェブアプリ）のURL設定 ---
-GAS_URL = "https://script.google.com/macros/s/AKfycby18d2CsK58l_toJ7OYiK1Lp359j804g0O4uMmftybv6FgPTg8g08hG-AYXuUG3AeZQ/exec"
+GAS_URL = "https://script.google.com/macros/s/AKfycbzJ4haEJBc8IYQSS4Hc9PG3tMVQLGPd9VjJtu55UBSaKJJQ18dJFabjPBXL4Fu1H2I/exec"
 
 # --- 🖨️ 印刷時のスタイル・A4収まり設定 ---
 st.markdown("""
@@ -64,14 +65,19 @@ def save_setting_to_gas(key, value):
     except Exception as e:
         print(f"Setting save error: {e}")
 
-# --- 1. サイドバー：画面モード切替 ＆ テスト段階・期限の設定 ---
+# --- 1. サイドバー：初期ページを「期末テストの印刷・サマリー画面」に設定 ---
 st.sidebar.header("🖥️ 表示モード切替")
-app_mode = st.sidebar.radio("表示する画面を選択", options=["📝 チェックリスト画面", "🖨️ サマリー・進捗一覧印刷画面"], key="selected_app_mode")
+app_mode = st.sidebar.radio(
+    "表示する画面を選択", 
+    options=["🖨️ サマリー・進捗一覧印刷画面", "📝 チェックリスト画面"], 
+    key="selected_app_mode"
+)
 
 st.sidebar.divider()
 
 st.sidebar.header("🗓️ テスト段階・期限の設定")
-test_stage = st.sidebar.radio("管理するテストを選択", options=["中間テスト", "期末テスト"], key="selected_test_stage")
+# 初期選択を「期末テスト」に設定
+test_stage = st.sidebar.radio("管理するテストを選択", options=["期末テスト", "中間テスト"], key="selected_test_stage")
 
 date_key = f"target_date_{test_stage}"
 saved_date_str = db_settings.get(date_key)
@@ -134,7 +140,7 @@ for item in subjects_config:
         "target_round": target_round
     }
 
-# --- 2. スプレッドシートからのチェックデータ読み込み ---
+# --- 2. スプレッドシートからのチェックデータ読み込み（中間・期末でデータ共有） ---
 @st.cache_data(ttl=3)
 def load_data_from_gas():
     try:
@@ -171,13 +177,13 @@ for i, item in enumerate(subjects_config):
         for p_start, p_end in page_blocks:
             is_currently_checked = False
             if not df_db.empty and all(col in df_db.columns for col in ["test_stage", "subject", "round", "page", "checked"]):
-                matched = df_db[(df_db["test_stage"].astype(str) == str(test_stage)) & 
-                                (df_db["subject"].astype(str) == str(subj)) & 
+                # どちらのテストでチェックしていても共通でカウントする
+                matched = df_db[(df_db["subject"].astype(str) == str(subj)) & 
                                 (df_db["round"].astype(str) == str(r)) & 
-                                (df_db["page"].astype(str) == str(p_end))]
+                                (df_db["page"].astype(str) == str(p_end)) &
+                                (df_db["checked"].astype(str).str.lower().isin(["true", "1", "yes"]))]
                 if not matched.empty:
-                    val = matched.iloc[0]["checked"]
-                    is_currently_checked = str(val).lower() in ["true", "1", "yes"]
+                    is_currently_checked = True
             if is_currently_checked:
                 checked_count += 1
 
@@ -188,12 +194,13 @@ for i, item in enumerate(subjects_config):
     daily_target = round(remaining_total_pages / remaining_days, 1)
     
     school_target_pages = max(0, school_p - s_p + 1)
-    done_round1_pages = min(pages_per_round * page_unit, done_total_pages)
-    catchup_diff = done_round1_pages - school_target_pages
+    done_round1_pages = min(pages_per_round * page_unit, checked_count * page_unit)
     
-    is_safe = catchup_diff >= 0
+    # 1周目が学校の授業進度まで進んだかどうかの判定
+    round1_blocks_count = len([b for b in page_blocks if b[1] <= school_p])
+    round1_checked_in_school = 0 # 1周目で学校進度までにチェックが入っている数
     
-    # 3段階の指標判定 (1.0以下: 余裕あり[緑], 1.3以下: 順調[青], 超え: がんばれ[オレンジ])
+    # ペース指標
     if daily_target <= 1.0:
         pace_status = "✅ 余裕あり"
         pace_color = "#09ab3b"
@@ -218,7 +225,6 @@ for i, item in enumerate(subjects_config):
         "1日ノルマ(P/日)": round(daily_target, 1),
         "ペース指標": pace_status,
         "pace_color": pace_color,
-        "is_safe": is_safe
     })
 
 result_df = pd.DataFrame(updated_rows)
@@ -247,6 +253,25 @@ if app_mode == "📝 チェックリスト画面":
         with tab:
             st.markdown(f"### 📖 {subj} （{test_stage}）")
             st.markdown(f"📌 **範囲:** p.{s_p} 〜 p.{e_p} ｜ 🏫 **学校の授業進度:** ~p.{school_p} まで ｜ 🎯 **目標:** {t_round}周")
+            
+            # 1周目が学校進度まで進んだ場合の誘導メッセージ
+            s_row = result_df[result_df["教科"] == subj].iloc[0]
+            # 1周目の中で学校進度までのページが完了しているか簡易判定
+            school_blocks = [b for b in page_blocks if b[1] <= school_p]
+            school_completed = True
+            if school_blocks:
+                for b_start, b_end in school_blocks:
+                    matched = df_db[(df_db["subject"].astype(str) == str(subj)) & 
+                                    (df_db["round"].astype(str) == "1") & 
+                                    (df_db["page"].astype(str) == str(b_end)) &
+                                    (df_db["checked"].astype(str).str.lower().isin(["true", "1", "yes"]))]
+                    if matched.empty:
+                        school_completed = False
+                        break
+            
+            if school_completed and len(school_blocks) > 0:
+                st.info(f"💡 **【ステップアップのチャンス！】** {subj}の1周目（学校の授業進度 p.{school_p}まで）が完了しました！次は**2周目**や**3周目**の復習に進んで定着させましょう！🚀")
+            
             st.write("やったページをポチポチチェック 👇")
             
             checked_count_tab = 0
@@ -262,8 +287,7 @@ if app_mode == "📝 チェックリスト画面":
                         
                         is_currently_checked = False
                         if not df_db.empty and all(col in df_db.columns for col in ["test_stage", "subject", "round", "page", "checked"]):
-                            matched = df_db[(df_db["test_stage"].astype(str) == str(test_stage)) & 
-                                            (df_db["subject"].astype(str) == str(subj)) & 
+                            matched = df_db[(df_db["subject"].astype(str) == str(subj)) & 
                                             (df_db["round"].astype(str) == str(r)) & 
                                             (df_db["page"].astype(str) == str(p_end))]
                             if not matched.empty:
@@ -298,21 +322,52 @@ if app_mode == "📝 チェックリスト画面":
             st.write(f"🏆 **【{test_stage} 目標ゴールへの進捗】** ({checked_count_tab} / {total_items_count} 区切り完了)")
             st.progress(goal_progress_ratio)
 
-    # 風船演出
-    all_caught_up = all(result_df["is_safe"])
-    all_completed = all(result_df["完了区切り数"] >= result_df["総区切り数"])
-    if len(result_df) > 0 and all_caught_up and not all_completed:
-        st.balloons()
-        st.success("🎈 すばらしい！本日のノルマをしっかり達成しました！この調子で頑張ろう！🎉")
+            # --- 各教科ごとの「今日の分を入力した！」ボタン ---
+            if st.button(f"🎈 {subj} の今日の分を入力した！", key=f"btn_complete_{subj}"):
+                st.balloons()
+                st.success(f"🎉 {subj}の今日の学習お疲れ様でした！素晴らしい頑張りです！✨")
 
 else:
-    # --- 🖨️ サマリー・進捗一覧印刷画面（A4 1枚収まり完全最適化） ---
+    # --- 🖨️ サマリー・進捗一覧印刷画面（初期表示） ---
     st.markdown('<div class="print-container">', unsafe_allow_html=True)
     
     st.header(f"🖨️ {test_stage} ノルマ・達成度進捗サマリー")
     st.caption("この画面をそのまま印刷（Ctrl + P または Cmd + P）してA4 1枚でご利用いただけます。")
     
     st.divider()
+
+    # --- 💡 ランダム励ましメッセージ機能 ---
+    encouragement_quotes = [
+        "えみちゃん、今日もお疲れさま！少しずつでも机に向かってるの、本当にえらい！",
+        "一気にやらなくて大丈夫！まずは5分だけやってみよ〜👍",
+        "中1の今頑張ってること、絶対に後から効いてくるよ！応援してる！",
+        "今日の頑張りが未来の自分へのプレゼント！無理せずファイト〜✨",
+        "集中切れたら一回深呼吸！マイペースでいこうね。",
+        "部活もあって大変なのに、ちゃんと勉強もやろうとしててすごいよ！",
+        "最初はみんな覚えること多くて大変な時期！ここを乗り越えたら一気に楽になるよ💪",
+        "えみなら絶対できる！『できた！』を1つずつ増やしていこう！",
+        "100点を目指さなくてOK！昨日の自分より1問多く解けたら大勝利だよ✨",
+        "わからない問題があったら『伸びしろ発見！』って思っちゃおう！",
+        "最近忙しそうだけど大丈夫？たまには甘いものでも食べて休憩してね ☕️",
+        "疲れてるときは無理しすぎないでね。休むのも大事な勉強のうちだよ！",
+        "『今日はここまで頑張った』って自分をいっぱい褒めてあげてね。",
+        "焦らなくて大丈夫。自分のペースで1歩ずつ進んでいこうね☘️",
+        "いつでも応援してるからね！困ったときはいつでも吐き出してOKだよ！",
+        "テスト期間のラスボス感すごいけどえみなら余裕で倒せるはず！⚔️",
+        "脳みそフル回転中だね！糖分補給して乗り切ろう〜！🍫",
+        "勉強が終わったら美味しいもの（または好きなこと）が待ってるぞ〜！"
+    ]
+
+    col_msg1, col_msg2 = st.columns([3, 1])
+    with col_msg1:
+        if "current_quote" not in st.session_state:
+            st.session_state["current_quote"] = random.choice(encouragement_quotes)
+        st.info(f"💬 **今日の応援メッセージ:** \n\n {st.session_state['current_quote']}")
+    with col_msg2:
+        st.write("")
+        if st.button("🔄 メッセージを替える"):
+            st.session_state["current_quote"] = random.choice(encouragement_quotes)
+            st.rerun()
 
     st.subheader("🎯 本日のノルマ・進度サマリー")
     
@@ -341,7 +396,6 @@ else:
 
     st.subheader("📊 教科別 達成率 (%) ＆ ペース連動カラー")
     
-    # Altairグラフ：すべての教科（6教科分）が確実に収まるように幅・高さを調整
     chart = alt.Chart(result_df).mark_bar(size=22).encode(
         x=alt.X('教科:N', sort=None, title='', axis=alt.Axis(labelAngle=0)),
         y=alt.Y('達成率(%):Q', title='達成率 (%)', scale=alt.Scale(nice=True, zero=True)),
@@ -353,7 +407,6 @@ else:
     st.altair_chart(chart, use_container_width=True)
 
     st.subheader("📋 進捗一覧テーブル")
-    # 小数第一位までフォーマットされたデータをテーブル表示
     display_df = result_df[["教科", "範囲", "学校進度", "目標", "完了区切り数", "総区切り数", "達成率(%)", "残りトータル(P)", "1日ノルマ(P/日)", "ペース指標"]].copy()
     display_df["達成率(%)"] = display_df["達成率(%)"].apply(lambda x: f"{x:.1f}")
     display_df["残りトータル(P)"] = display_df["残りトータル(P)"].apply(lambda x: f"{x:.1f}")
